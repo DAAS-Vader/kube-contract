@@ -11,7 +11,6 @@ import (
 
 	"github.com/k3s-io/k3s/pkg/cli/cmds"
 	"github.com/k3s-io/k3s/pkg/daemons/config"
-	"github.com/k3s-io/k3s/tests"
 )
 
 func Test_UnitApplyContainerdQoSClassConfigFileIfPresent(t *testing.T) {
@@ -19,10 +18,11 @@ func Test_UnitApplyContainerdQoSClassConfigFileIfPresent(t *testing.T) {
 		DataDir: "/tmp/k3s/",
 	}
 
-	if err := tests.GenerateDataDir(&configControl); err != nil {
+	// 간단한 Mock 구현 - 해커톤 데모용
+	if err := os.MkdirAll(configControl.DataDir, 0755); err != nil {
 		t.Errorf("Test_UnitApplyContainerdQoSClassConfigFileIfPresent() setup failed = %v", err)
 	}
-	defer tests.CleanupDataDir(&configControl)
+	defer os.RemoveAll(configControl.DataDir)
 
 	containerdConfigDir := filepath.Join(configControl.DataDir, "agent", "etc", "containerd")
 	os.MkdirAll(containerdConfigDir, 0700)

@@ -132,13 +132,154 @@
           8,
           9
         ],
-        "status": "in-progress",
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 11,
+        "title": "Design Nautilus TEE Master Node Architecture",
+        "description": "Design and implement a real Kubernetes master node running in Trusted Execution Environment with in-memory etcd for enhanced security and performance verification",
+        "details": "Based on analysis of k3s/pkg/agent/run.go and existing TEE integration patterns, create a TEE-enabled master node that runs core Kubernetes components (API server, scheduler, controller manager) within secure enclaves. Implement in-memory etcd with encrypted persistence, TEE attestation for all control plane operations, and secure communication channels between components. Key files to modify: pkg/daemons/control/, pkg/server/, and create new pkg/nautilus/ directory. Use Intel SGX, AMD SEV, or ARM TrustZone based on hardware detection. Integrate with existing WebSocket tunnel system from pkg/agent/tunnel/tunnel.go for secure agent communication.",
+        "testStrategy": "Unit tests for TEE initialization, enclave creation, and attestation flows. Integration tests for master node startup with TEE enabled. Security tests for enclave isolation and attestation verification. Performance benchmarks comparing TEE vs non-TEE master node operations.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 12,
+        "title": "Implement Minimal Sui Interface Contract",
+        "description": "Create a streamlined Sui smart contract for authentication, routing, and basic DaaS operations without complex logic",
+        "details": "Develop a minimal Sui Move contract that handles: 1) Worker node registration with Seal authentication, 2) Master node discovery and routing, 3) Basic staking requirements validation, 4) Performance proof submission endpoints. Contract should be gas-efficient and focus only on essential gateway functions. Implement client-side Sui SDK integration in Go for K3s agents to interact with the contract. Create configuration management for Sui network endpoints, wallet management, and transaction signing. Files to create: pkg/sui/contract.go, pkg/sui/client.go, contracts/daas_gateway.move.",
+        "testStrategy": "Sui Move contract unit tests for all functions. Integration tests with Sui devnet/testnet. Gas optimization tests. Client SDK tests for contract interaction. End-to-end tests for node registration and discovery flows.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 13,
+        "title": "Build Realtime Memory Cache System",
+        "description": "Implement high-performance in-memory cache to achieve sub-50ms kubectl command response times",
+        "details": "Create a multi-tier caching system optimized for kubectl operations: 1) L1 cache for frequently accessed resources (pods, services, deployments), 2) L2 cache for metadata and cluster state, 3) Cache invalidation mechanisms tied to etcd watch events, 4) Memory-efficient data structures using techniques from existing k3s optimizations. Implement cache warming strategies, TTL management, and memory pressure handling for c6g.large (4GB) constraints. Integrate with existing K3s API server proxy in pkg/agent/proxy/. Target <50ms response time for common kubectl get operations.",
+        "testStrategy": "Performance benchmarks for cache hit/miss scenarios. Memory usage tests under various workloads. Cache consistency tests with concurrent operations. Response time measurements for kubectl commands. Load testing with multiple clients.",
+        "priority": "high",
+        "dependencies": [
+          11
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 14,
+        "title": "Establish Worker-TEE WebSocket Communication",
+        "description": "Extend existing K3s WebSocket tunnel system for real-time state streaming between worker nodes and TEE master",
+        "details": "Enhance the existing WebSocket tunnel system in pkg/agent/tunnel/tunnel.go to support DaaS-specific message types: performance attestation, code fetching requests, and reward claim submissions. Add Nautilus attestation headers to WebSocket handshake, implement secure channels with TEE-signed messages, and create bidirectional streaming for real-time state updates. Extend the remotedialer-based system with DaaS message protocols while maintaining compatibility with existing K3s tunnel functionality. Implement connection pooling and automatic retry logic for TEE attestation failures.",
+        "testStrategy": "WebSocket connection stability tests. Message serialization/deserialization tests. TEE attestation integration tests. Performance tests for message throughput. Reconnection and fault tolerance tests.",
+        "priority": "high",
+        "dependencies": [
+          11,
+          12
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 15,
+        "title": "Develop Kubectl Command Router",
+        "description": "Create intelligent routing system to direct kubectl commands to appropriate data sources (TEE cache, Sui, or Walrus) based on data freshness and availability",
+        "details": "Build a request router that analyzes kubectl commands and determines optimal data source: hot data from TEE cache, warm data from Sui blockchain, or cold data from Walrus storage. Implement routing policies based on resource type, age, and access patterns. Create fallback mechanisms when primary sources are unavailable. Integrate with existing K3s API server architecture in pkg/daemons/control/ and maintain full kubectl compatibility. Add metrics for routing decisions and data source performance.",
+        "testStrategy": "Routing logic unit tests for various kubectl commands. Performance tests comparing routing strategies. Fallback mechanism tests with simulated failures. Compatibility tests with standard kubectl operations. Metrics validation for routing decisions.",
+        "priority": "medium",
+        "dependencies": [
+          13,
+          14
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 16,
+        "title": "Build TEE-Based Pod Scheduler",
+        "description": "Implement secure pod scheduling logic within TEE environment with performance attestation and resource optimization",
+        "details": "Create a TEE-secured scheduler that makes scheduling decisions based on: 1) Attested worker node performance, 2) Resource availability with cryptographic verification, 3) DaaS-specific scheduling policies (stake requirements, performance guarantees), 4) Integration with existing K3s scheduler framework. Implement secure scheduling algorithms within TEE enclaves, attestation-based node evaluation, and verifiable scheduling decisions. Extend default Kubernetes scheduler while maintaining compatibility with standard workloads.",
+        "testStrategy": "Scheduler logic unit tests with various scenarios. TEE integration tests for secure decision making. Performance tests for scheduling latency. Compatibility tests with standard Kubernetes workloads. Verification tests for attestation-based scheduling.",
+        "priority": "high",
+        "dependencies": [
+          11,
+          14
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 17,
+        "title": "Integrate 3-Tier Storage Architecture",
+        "description": "Implement hot (TEE), warm (Sui), and cold (Walrus) storage layers with intelligent data lifecycle management",
+        "details": "Create a tiered storage system: Hot tier (TEE memory) for active data and real-time operations, Warm tier (Sui blockchain) for recent state and metadata, Cold tier (Walrus decentralized storage) for historical data and large objects. Implement automatic data promotion/demotion based on access patterns, data aging policies, and storage cost optimization. Create unified API that abstracts storage tiers from K3s components. Integrate with etcd for hot storage, Sui SDK for warm storage, and Walrus client for cold storage.",
+        "testStrategy": "Data lifecycle management tests. Storage tier performance benchmarks. Data consistency tests across tiers. Cost optimization validation. API compatibility tests with K3s components.",
+        "priority": "medium",
+        "dependencies": [
+          11,
+          12
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 18,
+        "title": "Optimize TEE Performance for c6g.large",
+        "description": "Optimize memory usage and performance for AWS c6g.large instances (4GB RAM) with TEE overhead considerations",
+        "details": "Implement memory optimization strategies for TEE-enabled K3s running on c6g.large instances: 1) Memory profiling and optimization of TEE enclaves, 2) Efficient data structures for 4GB memory constraint, 3) Garbage collection tuning for Go components, 4) Memory pressure handling and graceful degradation, 5) TEE-specific optimizations (enclave size, secure heap management). Profile existing K3s memory usage and identify optimization opportunities. Implement memory monitoring and alerting for TEE operations.",
+        "testStrategy": "Memory usage profiling under various workloads. Performance benchmarks on c6g.large instances. Stress tests with memory pressure. TEE overhead measurement and optimization validation. Comparison tests with non-TEE configurations.",
+        "priority": "high",
+        "dependencies": [
+          11,
+          13,
+          16
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 19,
+        "title": "Implement Multi-Cluster Management",
+        "description": "Design system for single Sui contract to manage multiple TEE clusters with cross-cluster operations and unified control plane",
+        "details": "Extend the Sui contract to support multiple K3s clusters with: 1) Cluster registration and discovery, 2) Cross-cluster workload scheduling, 3) Unified authentication and authorization, 4) Resource federation and load balancing across clusters, 5) Global state management and synchronization. Implement cluster-aware routing in the kubectl command router and cross-cluster networking with existing K3s tunnel system. Create cluster health monitoring and automatic failover mechanisms.",
+        "testStrategy": "Multi-cluster deployment tests. Cross-cluster communication tests. Failover and recovery tests. Resource federation validation. Performance tests with multiple clusters.",
+        "priority": "medium",
+        "dependencies": [
+          12,
+          16
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 20,
+        "title": "Complete System Integration Testing",
+        "description": "Comprehensive end-to-end testing with docker-compose environment covering all DaaS components and workflows",
+        "details": "Create comprehensive testing environment using docker-compose that includes: 1) TEE-enabled K3s master and worker nodes, 2) Sui blockchain network (devnet/testnet), 3) Walrus storage network simulation, 4) Nautilus attestation services, 5) End-to-end workflow tests (node registration, workload deployment, performance attestation, reward distribution). Implement automated test suites for all DaaS features, performance benchmarking, security validation, and failure scenario testing. Create CI/CD pipelines for continuous integration testing.",
+        "testStrategy": "End-to-end workflow automation tests. Performance benchmarking across all components. Security penetration testing. Failure injection and recovery tests. Load testing with realistic workloads. Documentation and deployment guide validation.",
+        "priority": "high",
+        "dependencies": [
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "status": "pending",
         "subtasks": []
       }
     ],
     "metadata": {
       "created": "2025-09-14T18:48:32.022Z",
-      "updated": "2025-09-15T05:05:35.164Z",
+      "updated": "2025-09-15T15:38:53.034Z",
       "description": "Tasks for master context"
     }
   }

@@ -1,0 +1,33 @@
+# DaaS Phase 2 - Nautilus Master Node Implementation
+
+## Tasks
+
+### Task 11: Nautilus TEE Master Node Design
+Design real K8s master node running in TEE with in-memory etcd
+
+### Task 12: Minimal Sui Interface Contract  
+Simple gateway contract for auth and routing only
+
+### Task 13: Realtime Cache Implementation
+Memory cache for <50ms kubectl response
+
+### Task 14: Worker-TEE WebSocket Communication
+Realtime state streaming from workers
+
+### Task 15: Kubectl Command Router
+Route commands to appropriate data sources
+
+### Task 16: TEE Scheduler Implementation
+Pod scheduling logic in TEE
+
+### Task 17: 3-Tier Storage Integration
+Hot(TEE)/Warm(Sui)/Cold(Walrus) data layers
+
+### Task 18: TEE Performance Optimization
+Optimize for c6g.large (4GB) memory
+
+### Task 19: Multi-cluster Management
+Single Sui contract managing multiple TEEs
+
+### Task 20: Integration Testing
+Complete system testing with docker-compose
