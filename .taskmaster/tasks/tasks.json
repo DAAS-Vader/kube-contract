@@ -1,0 +1,145 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Map K3s Agent Registration Flow",
+        "description": "Analyze complete agent registration flow from CLI entry point through WebSocket connection establishment",
+        "details": "Trace the complete registration flow starting from pkg/cli/agent/agent.go Run() function through agent.Run() in pkg/agent/run.go, focusing on: 1) Token validation process in createProxyAndValidateToken(), 2) Configuration retrieval from server via config.Get(), 3) WebSocket tunnel setup in tunnel.Setup(), 4) Authentication mechanisms including node password generation. Document all HTTP endpoints called (/v1-k3s/config, /v1-k3s/connect, etc.), headers sent (k3s-Node-Name, k3s-Node-Password, k3s-Node-IP), and certificate exchange process. Map the sequence from initial token validation to established WebSocket connection with remotedialer.",
+        "testStrategy": "Create sequence diagrams and flow charts documenting the complete registration process. Build test harness to intercept and log all HTTP requests during registration. Verify understanding by implementing mock server that can handle agent registration requests.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 2,
+        "title": "Analyze WebSocket Communication Protocol",
+        "description": "Deep dive into the WebSocket tunnel implementation and message protocol used between agent and server",
+        "details": "Examine pkg/agent/tunnel/tunnel.go focusing on: 1) WebSocket URL formation (wss://address/v1-k3s/connect), 2) remotedialer.ConnectToProxyWithDialer usage and message formats, 3) Authentication callback function and authorization logic, 4) Health check implementation and reconnection mechanism, 5) Tunnel authorizer that validates dial requests based on CIDR ranges and ports. Analyze the bidirectional communication - how server can initiate connections back to agent for kubelet access, and how the tunneling works for different protocols (TCP). Document the complete message flow and any heartbeat/keepalive mechanisms.",
+        "testStrategy": "Implement WebSocket client that can establish connection using K3s protocol. Create packet capture analysis of actual agent-server communication. Build test scenarios for connection failures, reconnection logic, and authorization edge cases.",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 3,
+        "title": "Examine Authentication and Security Mechanisms",
+        "description": "Analyze all authentication layers including tokens, certificates, and node passwords",
+        "details": "Study authentication components: 1) Token-based authentication in clientaccess.ParseAndValidateToken(), 2) Node password generation in ensureNodePassword() using crypto/rand, 3) X.509 certificate management - client-kubelet.crt/key, serving-kubelet.crt/key generation and validation, 4) TLS configuration in tunnel setup, 5) JWT token validation and refresh mechanisms. Examine how node identity is established and maintained, including the node-password.txt file storage and the k3s-Node-Password header usage. Understand certificate signing request (CSR) process and how server validates and signs agent certificates.",
+        "testStrategy": "Test token validation with invalid tokens, expired certificates, and wrong node passwords. Create security test suite covering certificate validation, TLS configuration, and authentication bypass attempts. Implement custom authentication flows to understand extension points.",
+        "priority": "high",
+        "dependencies": [
+          1,
+          2
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 4,
+        "title": "Study Configuration System and Extension Points",
+        "description": "Map the configuration loading, validation, and storage mechanisms to identify modification injection points",
+        "details": "Analyze pkg/agent/config/config.go focusing on: 1) Configuration retrieval from server via /v1-k3s/config endpoint, 2) Local configuration merging with server settings in get() function, 3) Environment variable processing and CLI flag handling, 4) Node configuration structures (config.Node, config.Agent) and their initialization, 5) File system layout - data directory structure, certificate storage locations, and config file management. Identify where custom configuration could be injected without breaking existing functionality. Study the VPN integration (vpn.StartVPN) as an example of runtime modification.",
+        "testStrategy": "Create configuration override tests with custom settings. Implement configuration validation to ensure modifications don't break core functionality. Test edge cases with missing files, permission issues, and malformed configuration data.",
+        "priority": "medium",
+        "dependencies": [
+          1
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 5,
+        "title": "Analyze Load Balancer and Proxy Components",
+        "description": "Understand the agent-side load balancing and proxy mechanisms for server connections",
+        "details": "Examine pkg/agent/loadbalancer/loadbalancer.go and proxy components: 1) LoadBalancer implementation using tcpproxy for connection management, 2) Server address management and failover logic in serverList, 3) Health check mechanisms and endpoint discovery, 4) SupervisorProxy creation and management, 5) How multiple server endpoints are handled and load balanced. Understand the relationship between the proxy (for supervisor connections) and the tunnel (for bidirectional communication). Study how apiserver endpoint updates are propagated and how connection switching works during server failures.",
+        "testStrategy": "Test failover scenarios with multiple servers. Create network partition tests to validate connection switching. Implement custom health check functions to understand the health monitoring system.",
+        "priority": "medium",
+        "dependencies": [
+          2
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 6,
+        "title": "Design Sui Blockchain Integration Architecture",
+        "description": "Design the integration points for Sui blockchain authentication and Seal replacement",
+        "details": "Design integration architecture replacing token-based auth with Sui blockchain: 1) Replace token authentication with Sui wallet signature verification, 2) Integrate with Sui Move modules for stake verification, 3) Design Seal integration to replace traditional node passwords, 4) Plan Sui address-based node identity system, 5) Design Sui transaction-based node registration process. Create abstraction layers that maintain compatibility with existing K3s interfaces while adding blockchain functionality. Consider gas cost optimization and transaction finality for real-time agent registration. Plan for Sui RPC endpoint management and failover.",
+        "testStrategy": "Create proof-of-concept Sui smart contract for node registration. Test Sui wallet integration and signature verification. Validate stake checking mechanism and transaction submission flows. Create integration tests with mock Sui network.",
+        "priority": "high",
+        "dependencies": [
+          3,
+          4
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 7,
+        "title": "Design Walrus Storage Integration",
+        "description": "Plan integration with Walrus decentralized storage for code and configuration fetching",
+        "details": "Design Walrus storage integration for DaaS code fetching: 1) Replace local file system access with Walrus blob retrieval, 2) Implement Walrus client for configuration and code downloads, 3) Design caching mechanism for frequently accessed blobs, 4) Plan integrity verification using Walrus proofs, 5) Design update mechanism when new code versions are published to Walrus. Consider bandwidth optimization, local caching strategies, and fallback mechanisms when Walrus is unavailable. Plan for large file handling and progressive loading of container images and configurations.",
+        "testStrategy": "Implement Walrus client integration with K3s. Test large file downloads and caching mechanisms. Create scenarios for network failures and blob unavailability. Validate integrity checking and proof verification.",
+        "priority": "medium",
+        "dependencies": [
+          4,
+          6
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 8,
+        "title": "Design Nautilus Attestation Integration",
+        "description": "Plan integration with Nautilus for performance monitoring and reward attestation",
+        "details": "Design Nautilus integration for DaaS performance monitoring: 1) Implement performance metrics collection and reporting to Nautilus, 2) Design attestation submission mechanism for completed workloads, 3) Plan integration with existing metrics system (pkg/metrics) to extend with Nautilus reporting, 4) Design proof-of-work submission for computational tasks, 5) Plan reward calculation and distribution triggers. Consider real-time monitoring requirements, batch processing for attestation submissions, and handling of failed attestations. Design metrics that balance accuracy with gas cost optimization.",
+        "testStrategy": "Implement metrics collection and Nautilus submission pipeline. Test attestation generation and submission under various load conditions. Create scenarios for failed submissions and retry mechanisms. Validate reward calculation accuracy.",
+        "priority": "medium",
+        "dependencies": [
+          6
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 9,
+        "title": "Implement Blockchain Authentication Layer",
+        "description": "Create blockchain authentication components to replace K3s token authentication",
+        "details": "Implement the core blockchain authentication replacement: 1) Create SuiAuthenticator struct implementing K3s authentication interfaces, 2) Replace clientaccess.ParseAndValidateToken with Sui signature verification, 3) Implement wallet-based node identity management, 4) Create Sui transaction builders for node registration and updates, 5) Implement stake validation against Sui network state, 6) Create Seal integration wrapper compatible with existing node password workflows. Maintain backward compatibility where possible and ensure all existing authentication touchpoints are properly replaced. Handle Sui network connectivity issues and implement appropriate fallback mechanisms.",
+        "testStrategy": "Create comprehensive test suite covering all authentication scenarios. Test with real Sui testnet integration. Validate signature verification, stake checking, and transaction submission. Create stress tests for high-frequency authentication requests.",
+        "priority": "high",
+        "dependencies": [
+          6,
+          3
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 10,
+        "title": "Build Integration Testing Framework",
+        "description": "Create comprehensive testing framework for validating DaaS modifications against K3s functionality",
+        "details": "Build testing framework that validates DaaS integration: 1) Create test clusters with modified agents connecting to standard K3s servers, 2) Implement compatibility testing ensuring container runtime functionality remains intact, 3) Create performance benchmarks comparing vanilla K3s vs DaaS-enabled agents, 4) Implement end-to-end tests covering full workflow from agent registration through workload execution and attestation, 5) Create failure scenario tests for blockchain network issues, storage unavailability, and partial system failures. Include regression testing to ensure K3s core functionality is preserved and integration testing with real Sui testnet and Walrus storage.",
+        "testStrategy": "Deploy test environments with multiple agent configurations. Run K3s conformance tests against modified agents. Create load testing scenarios with real blockchain interactions. Validate all integration points work correctly under various failure conditions.",
+        "priority": "high",
+        "dependencies": [
+          7,
+          8,
+          9
+        ],
+        "status": "in-progress",
+        "subtasks": []
+      }
+    ],
+    "metadata": {
+      "created": "2025-09-14T18:48:32.022Z",
+      "updated": "2025-09-15T05:05:35.164Z",
+      "description": "Tasks for master context"
+    }
+  }
+}

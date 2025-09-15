@@ -1,0 +1,70 @@
+# Sui Full Node Configuration for DaaS Testing
+---
+db-path: /opt/sui/db
+network-address: /ip4/0.0.0.0/tcp/8080
+json-rpc-address: "0.0.0.0:9000"
+metrics-address: "0.0.0.0:9184"
+admin-interface-port: 1337
+
+p2p-config:
+  listen-address: "0.0.0.0:8084"
+  external-address: "/ip4/127.0.0.1/tcp/8084"
+  anemo-config:
+    max-concurrent-connections: 1000
+
+network:
+  p2p-config:
+    seed-peers:
+      - address: "/dns/sui-node-1/tcp/8084"
+        peer-id: "16Uiu2HAmTVDGNhkHD98zDnJxQWu3i1FL1aFYeh9wiQTNu4pDCgps"
+
+genesis:
+  genesis-file-location: /opt/sui/config/genesis.blob
+
+authority-store-pruning-config:
+  num-latest-epoch-dbs-to-retain: 3
+  epoch-db-pruning-period-secs: 3600
+  num-epochs-to-retain: 3
+  max-checkpoints-in-batch: 200
+  max-transactions-in-batch: 1000
+  use-indirect-objects: true
+  indirect-objects-threshold: 18
+
+state-sync:
+  checkpoint-path: /opt/sui/db/checkpoints
+
+# Enable all RPC modules for testing
+enabled-features:
+  - "coin"
+  - "unsafe-client"
+  - "event-subscription"
+  - "subscription"
+
+# Aggressive settings for local testing
+checkpoint-executor-config:
+  checkpoint-execution-max-concurrency: 200
+  local-execution-timeout-sec: 30
+
+consensus-config:
+  max-submit-position: 5000
+  submit-delay-step-override-millis: 1000
+
+# Database configuration optimized for testing
+db-config:
+  rocksdb-config:
+    options:
+      max_background_jobs: 4
+      max_subcompactions: 1
+    rw_options:
+      max_write_buffer_number: 8
+    read_options:
+      readahead_size: 2097152
+
+# Logging configuration
+logging:
+  level: "info"
+  # Enable debug logging for DaaS-related components
+  overrides:
+    "sui_node": "debug"
+    "sui_core": "info"
+    "sui_network": "info"

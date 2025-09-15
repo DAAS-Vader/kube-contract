@@ -1,0 +1,244 @@
+version: '3.8'
+
+services:
+  # Local Sui Node for DaaS testing
+  sui-node:
+    image: mysten/sui-node:latest
+    container_name: daas-sui-node
+    ports:
+      - "9000:9000"   # RPC port
+      - "9184:9184"   # Metrics port
+      - "8080:8080"   # REST API port
+    volumes:
+      - sui-data:/opt/sui/db
+      - ./configs/sui:/opt/sui/config
+    environment:
+      - SUI_CONFIG_DIR=/opt/sui/config
+      - RUST_LOG=info,sui_node=debug
+    command: [
+      "sui-node",
+      "--config-path", "/opt/sui/config/fullnode.yaml"
+    ]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - daas-network
+
+  # Walrus Simulator for decentralized storage
+  walrus-simulator:
+    image: walrus/simulator:latest
+    container_name: daas-walrus-simulator
+    ports:
+      - "31415:31415"  # Walrus API port
+      - "31416:31416"  # Walrus aggregator port
+    volumes:
+      - walrus-data:/data
+      - ./configs/walrus:/config
+    environment:
+      - WALRUS_CONFIG_PATH=/config/walrus.toml
+      - WALRUS_DATA_PATH=/data
+      - RUST_LOG=info,walrus=debug
+    command: [
+      "walrus-aggregator",
+      "--config", "/config/walrus.toml",
+      "--listen-address", "0.0.0.0:31415"
+    ]
+    depends_on:
+      sui-node:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:31415/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - daas-network
+
+  # K3s Control Plane
+  k3s-server:
+    image: rancher/k3s:latest
+    container_name: daas-k3s-server
+    ports:
+      - "6443:6443"   # Kubernetes API
+      - "8001:8001"   # K3s metrics
+    volumes:
+      - k3s-server-data:/var/lib/rancher/k3s
+      - ./configs/k3s:/etc/rancher/k3s
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - K3S_TOKEN=daas-test-token-12345
+      - K3S_KUBECONFIG_OUTPUT=/output/kubeconfig.yaml
+      - K3S_KUBECONFIG_MODE=666
+    command: [
+      "server",
+      "--disable=traefik",
+      "--disable=servicelb",
+      "--write-kubeconfig-mode=666",
+      "--kube-apiserver-arg=enable-admission-plugins=NodeRestriction,MutatingAdmissionWebhook,ValidatingAdmissionWebhook",
+      "--config=/etc/rancher/k3s/config.yaml"
+    ]
+    privileged: true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "k3s", "kubectl", "get", "nodes"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - daas-network
+
+  # Modified K3s Agent with DaaS Support
+  k3s-agent-daas:
+    build:
+      context: ../k3s-daas
+      dockerfile: ../testing/Dockerfile.k3s-agent
+    container_name: daas-k3s-agent
+    volumes:
+      - k3s-agent-data:/var/lib/rancher/k3s
+      - ./configs/k3s-agent:/etc/rancher/k3s
+      - ./test-wallets:/etc/k3s/wallets
+    environment:
+      - K3S_URL=https://k3s-server:6443
+      - K3S_TOKEN=SEAL0x1234567890abcdef1234567890abcdef12345678::test-signature::test-challenge
+      - SUI_RPC_ENDPOINT=http://sui-node:9000
+      - WALRUS_ENDPOINT=http://walrus-simulator:31415
+      - DAAS_ENABLED=true
+      - DAAS_MIN_STAKE=1000000000
+      - SEAL_WALLET_ADDRESS=0x1234567890abcdef1234567890abcdef12345678
+      - RUST_LOG=info,k3s=debug
+    depends_on:
+      k3s-server:
+        condition: service_healthy
+      sui-node:
+        condition: service_healthy
+      walrus-simulator:
+        condition: service_healthy
+    restart: unless-stopped
+    privileged: true
+    networks:
+      - daas-network
+
+  # Nautilus Attestation Service
+  nautilus-attestation:
+    image: nautilus/attestation:latest
+    container_name: daas-nautilus-attestation
+    ports:
+      - "8090:8090"   # Attestation API
+    volumes:
+      - nautilus-data:/data
+      - ./configs/nautilus:/config
+    environment:
+      - NAUTILUS_CONFIG_PATH=/config/nautilus.toml
+      - NAUTILUS_SUI_RPC=http://sui-node:9000
+      - NAUTILUS_WALRUS_RPC=http://walrus-simulator:31415
+      - RUST_LOG=info,nautilus=debug
+    command: [
+      "nautilus-attestation",
+      "--config", "/config/nautilus.toml",
+      "--listen", "0.0.0.0:8090"
+    ]
+    depends_on:
+      sui-node:
+        condition: service_healthy
+      walrus-simulator:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - daas-network
+
+  # Test Runner Container
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.test-runner
+    container_name: daas-test-runner
+    volumes:
+      - ./integration-tests:/tests
+      - ./scripts:/scripts
+      - ./test-data:/test-data
+      - k3s-server-data:/k3s-data:ro
+    environment:
+      - SUI_RPC_ENDPOINT=http://sui-node:9000
+      - WALRUS_ENDPOINT=http://walrus-simulator:31415
+      - K3S_ENDPOINT=https://k3s-server:6443
+      - NAUTILUS_ENDPOINT=http://nautilus-attestation:8090
+      - TEST_WALLET_ADDRESS=0x1234567890abcdef1234567890abcdef12345678
+      - PYTEST_ARGS=--verbose --tb=short
+    depends_on:
+      k3s-server:
+        condition: service_healthy
+      k3s-agent-daas:
+        condition: service_started
+      nautilus-attestation:
+        condition: service_healthy
+    networks:
+      - daas-network
+    profiles:
+      - testing
+
+  # Monitoring and Observability
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: daas-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./configs/prometheus:/etc/prometheus
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - daas-network
+    profiles:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: daas-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./configs/grafana:/etc/grafana/provisioning
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=daas-testing
+      - GF_USERS_ALLOW_SIGN_UP=false
+    networks:
+      - daas-network
+    profiles:
+      - monitoring
+
+volumes:
+  sui-data:
+    driver: local
+  walrus-data:
+    driver: local
+  k3s-server-data:
+    driver: local
+  k3s-agent-data:
+    driver: local
+  nautilus-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+networks:
+  daas-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

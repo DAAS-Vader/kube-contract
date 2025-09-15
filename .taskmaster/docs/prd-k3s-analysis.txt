@@ -1,0 +1,134 @@
+# K3s Agent Analysis & Modification PRD
+
+## Objective
+Transform K3s agent into a DaaS worker node that integrates with Sui blockchain
+
+## COMPLETED: K3s Agent Registration Flow Analysis
+
+### Analysis Overview
+Complete analysis of K3s agent registration flow has been completed, starting from cmd/agent/main.go.
+
+### Key Findings
+
+#### 1. Entry Point Architecture
+- **Entry**: `cmd/agent/main.go` → CLI application setup
+- **Command**: `pkg/cli/cmds/agent.go` → Agent command with full flag configuration
+- **Handler**: `pkg/cli/agent/agent.go` → Main agent initialization and setup
+- **Core**: `pkg/agent/run.go` → Core agent orchestration and execution
+
+#### 2. Registration Flow Sequence
+1. **CLI Setup**: Parse flags, validate build environment
+2. **Security Setup**: Hide process args, evacuate cgroups, check privileges
+3. **Token Validation**: Continuous retry loop until server accepts token
+4. **Proxy Creation**: Set up load balancer and supervisor proxy
+5. **Config Retrieval**: Get node config from server with jittered retry
+6. **System Validation**: Check IPv4/IPv6, dual-stack configuration
+7. **Runtime Setup**: Bootstrap executor, container runtime setup
+8. **Tunnel/Agent**: Establish secure tunnel, start kubelet/kube-proxy
+
+#### 3. Critical Authentication Flow
+```
+Token File/CLI → createProxyAndValidateToken() →
+clientaccess.ParseAndValidateToken() [RETRY LOOP] →
+Certificate Generation → Server Configuration Retrieval
+```
+
+#### 4. Key Modification Points Identified
+- **Token validation**: `pkg/agent/run.go:355` - Replace with Sui authentication
+- **Config retrieval**: `pkg/agent/config/config.go:59` - Add DaaS-specific config
+- **Agent startup**: `pkg/daemons/agent/agent.go:36` - Inject DaaS components
+- **Node registration**: `pkg/agent/run.go:371` - Add Sui node registration
+
+#### 5. Security Architecture
+- Process argument hiding for credential protection
+- Certificate-based authentication post-validation
+- Continuous retry with exponential backoff
+- Secure tunnel establishment for all communications
+
+## Critical Files to Analyze
+
+### Phase 1: Agent Core Analysis ✅ COMPLETED
+1. pkg/agent/run.go ✅
+   - Agent main loop analyzed
+   - Configuration loading mapped
+   - Server connection logic documented
+
+2. pkg/agent/config/config.go ✅
+   - Configuration structures identified
+   - Token management flow traced
+   - Server URL handling documented
+
+3. pkg/agent/tunnel/tunnel.go [NEXT PRIORITY]
+   - WebSocket connection
+   - Authentication flow
+   - Reconnection logic
+
+### Phase 2: Registration Process ✅ PARTIALLY COMPLETED
+1. pkg/cli/agent/agent.go ✅
+   - CLI entry point analyzed
+   - Flag parsing documented
+   - Agent initialization traced
+
+2. pkg/agent/loadbalancer/loadbalancer.go
+   - Server endpoint management
+   - Connection load balancing
+   - Failover handling
+
+3. pkg/nodepassword/nodepassword.go [NOT FOUND]
+   - Node authentication
+   - Password generation
+   - Secret storage
+
+### Phase 3: Modification Points
+1. Authentication Integration
+   - Replace token auth with Seal
+   - Add Sui wallet integration
+   - Implement stake verification
+
+2. Storage Integration
+   - Add Walrus client
+   - Code fetching mechanism
+   - State persistence
+
+3. Monitoring Integration
+   - Nautilus attestation
+   - Performance metrics
+   - Reward calculation
+
+## Analysis Tasks
+
+### Task 1: Deep Dive Agent Registration ✅ COMPLETED [CRITICAL]
+- ✅ Trace complete registration flow from CLI to WebSocket
+- ✅ Document all authentication checkpoints
+- ✅ Identify modification injection points
+- [ ] Create sequence diagrams
+
+### Task 2: WebSocket Protocol Analysis [CRITICAL]
+- [ ] Analyze tunnel implementation
+- [ ] Document message formats
+- [ ] Understand reconnection logic
+- [ ] Map keepalive mechanism
+
+### Task 3: Configuration System [HIGH]
+- [ ] Map all configuration sources
+- [ ] Document environment variables
+- [ ] Analyze config file loading
+- [ ] Identify extension points
+
+### Task 4: Build System Understanding [HIGH]
+- [ ] Understand build scripts
+- [ ] Document build flags
+- [ ] Analyze binary packaging
+- [ ] Test custom builds
+
+## Success Criteria
+- ✅ Complete understanding of agent→server communication
+- ✅ Identified all modification points
+- [ ] Working proof of concept with Sui integration
+- [ ] Maintained compatibility with container runtime
+
+## Next Steps
+1. Analyze tunnel/WebSocket implementation (`pkg/agent/tunnel/tunnel.go`)
+2. Map load balancer and connection management
+3. Design Sui integration points
+4. Create proof of concept implementation

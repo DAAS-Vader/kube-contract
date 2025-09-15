@@ -1,0 +1,85 @@
+# K3s Agent Configuration for DaaS Testing
+---
+# Server connection
+server: "https://k3s-server:6443"
+token-file: "/etc/rancher/k3s/token"
+
+# Node configuration
+node-name: "daas-worker-node"
+node-label:
+  - "node-role.kubernetes.io/worker=true"
+  - "daas.io/blockchain-enabled=true"
+  - "daas.io/stake-validated=true"
+  - "daas.io/testing=true"
+
+# Data directory
+data-dir: "/var/lib/rancher/k3s"
+
+# Kubelet configuration
+kubelet-arg:
+  - "max-pods=100"
+  - "node-status-update-frequency=5s"
+  - "image-pull-progress-deadline=30m"
+  - "feature-gates=DynamicAuditing=true"
+
+# Container runtime
+container-runtime-endpoint: "unix:///run/containerd/containerd.sock"
+
+# Network configuration
+flannel-iface: "eth0"
+node-ip: "0.0.0.0"  # Auto-detect
+
+# DaaS-specific configuration
+daas:
+  enabled: true
+
+  # Sui blockchain configuration
+  sui:
+    rpc_endpoint: "http://sui-node:9000"
+    contract_package: "0x1234567890abcdef1234567890abcdef12345678"
+    wallet_path: "/etc/k3s/wallets/worker.key"
+    max_gas_budget: 1000000
+    timeout_duration: "30s"
+
+  # Seal authentication configuration
+  seal:
+    wallet_address: "0x1234567890abcdef1234567890abcdef12345678"
+    private_key_path: "/etc/k3s/wallets/seal-private.key"
+    challenge_expiry: "5m"
+
+  # Stake configuration
+  stake:
+    min_stake: "1000000000"  # 1 SUI
+    validator_cache_ttl: "5m"
+    check_interval: "30s"
+
+# Walrus integration
+walrus:
+  enabled: true
+  endpoint: "http://walrus-simulator:31415"
+  blob_store_id: "test-blob-store"
+  max_blob_size: "100MB"
+  timeout: "30s"
+
+# Nautilus attestation
+nautilus:
+  enabled: true
+  endpoint: "http://nautilus-attestation:8090"
+  attestation_interval: "1h"
+  verification_timeout: "30s"
+
+# Logging
+log-level: "info"
+alsologtostderr: true
+
+# Security
+protect-kernel-defaults: false
+selinux: false
+apparmor: false
+
+# Snapshotter
+snapshotter: "overlayfs"
+
+# Disable unnecessary features for testing
+disable:
+  - servicelb
