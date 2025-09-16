@@ -1,11 +1,11 @@
 {
-  "node_id": "testnet-staker-01",
-  "sui_wallet_address": "YOUR_SUI_WALLET_ADDRESS",
-  "sui_private_key": "YOUR_SUI_PRIVATE_KEY",
+  "node_id": "k3s-daas-worker-001",
+  "sui_wallet_address": "0x1234567890abcdef1234567890abcdef12345678",
+  "sui_private_key": "your_sui_private_key_here",
   "sui_rpc_endpoint": "https://fullnode.testnet.sui.io:443",
-  "stake_amount": 1000,
-  "contract_address": "DEPLOYED_CONTRACT_PACKAGE_ID",
-  "nautilus_endpoint": "http://NAUTILUS_TEE_IP:8080",
-  "container_runtime": "containerd",
-  "min_stake_amount": 1000
+  "stake_amount": 1000000000,
+  "contract_address": "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+  "nautilus_endpoint": "http://127.0.0.1:6443",
+  "container_runtime": "docker",
+  "min_stake_amount": 1000000000
 }

@@ -16,6 +16,7 @@ K3s-DaaS 스테이커 호스트 (Staker Host) - K3s 워커 노드 + Sui 블록�
 package main
 
 import (
+	"context"
 	"encoding/base64"  // Base64 인코딩/디코딩
 	"encoding/json"    // JSON 직렬화/역직렬화를 위한 패키지
 	"fmt"              // 포맷 문자열 처리
@@ -23,7 +24,9 @@ import (
 	"net/http"         // HTTP 서버/클라이언트
 	"os"               // 운영체제 인터페이스 (환경변수, 파일 등)
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"             // 시간 관련 함수들
 
 	"github.com/go-resty/resty/v2" // HTTP 클라이언트 라이브러리 (Sui RPC 통신용)
@@ -115,10 +118,18 @@ type Container struct {
 /*
 Kubelet - K3s의 노드 에이전트
 마스터 노드(Nautilus TEE)와 통신하여 Pod을 관리합니다.
+실제 K3s 바이너리를 프로세스로 실행하여 완전한 워커 노드 기능을 제공합니다.
 */
 type Kubelet struct {
-	nodeID    string // 이 kubelet이 관리하는 노드 ID
-	masterURL string // 마스터 노드 (Nautilus TEE) URL
+	nodeID      string          // 이 kubelet이 관리하는 노드 ID
+	masterURL   string          // 마스터 노드 (Nautilus TEE) URL
+	token       string          // K3s join token (Seal token)
+	dataDir     string          // K3s 데이터 디렉토리
+	ctx         context.Context // 컨텍스트
+	cancel      context.CancelFunc // 취소 함수
+	cmd         *exec.Cmd       // K3s agent 프로세스
+	running     bool            // 실행 상태
+	mu          sync.RWMutex    // 뮤텍스
 }
 
 /*
@@ -219,12 +230,19 @@ func NewStakerHost(configPath string) (*StakerHost, error) {
 	}
 
 	// 3️⃣ K3s 워커 노드 에이전트 초기화
-	// kubelet과 컨테이너 런타임을 포함합니다.
+	// 실제 K3s 바이너리를 프로세스로 실행하여 완전한 워커 노드 기능을 제공합니다.
+	ctx, cancel := context.WithCancel(context.Background())
+
 	k3sAgent := &K3sAgent{
 		nodeID: config.NodeID,
 		kubelet: &Kubelet{
-			nodeID:    config.NodeID,            // 노드 식별자
-			masterURL: config.NautilusEndpoint,  // Nautilus TEE 마스터 노드 URL
+			nodeID:    config.NodeID,
+			masterURL: config.NautilusEndpoint,
+			token:     "", // 초기에는 빈 값, RegisterStake 후에 Seal token으로 설정됨
+			dataDir:   filepath.Join(".", "k3s-data"),
+			ctx:       ctx,
+			cancel:    cancel,
+			running:   false,
 		},
 	}
 
@@ -395,6 +413,12 @@ func (s *StakerHost) RegisterStake() error {
 	s.stakingStatus.Status = "active"                  // 활성 상태로 설정
 	s.stakingStatus.LastValidation = time.Now().Unix() // 현재 시간으로 검증 시각 설정
 
+	// 🔑 K3s Agent에서 Seal 토큰을 사용하도록 설정 업데이트
+	if s.k3sAgent != nil && s.k3sAgent.kubelet != nil {
+		s.k3sAgent.kubelet.token = sealToken
+		log.Printf("🔧 K3s Agent에 Seal 토큰 설정 완료")
+	}
+
 	log.Printf("✅ Seal 토큰 생성 성공! Token ID: %s", sealToken)
 	log.Printf("🎉 스테이킹 및 Seal 토큰 준비 완료!")
 
@@ -525,9 +549,13 @@ func (s *StakerHost) StartHeartbeat() {
 
 	// 🔄 별도 고루틴에서 하트비트 처리 (메인 스레드 블록킹 방지)
 	go func() {
+		failureCount := 0
+		maxFailures := 3
+
 		for range s.heartbeatTicker.C { // 타이머가 틱할 때마다 실행
 			if err := s.validateStakeAndSendHeartbeat(); err != nil {
-				log.Printf("⚠️ 하트비트 오류: %v", err)
+				failureCount++
+				log.Printf("⚠️ 하트비트 오류 (%d/%d): %v", failureCount, maxFailures, err)
 
 				// 🚨 치명적 오류: 스테이킹이 슬래시된 경우
 				if err.Error() == "stake_slashed" {
@@ -536,7 +564,24 @@ func (s *StakerHost) StartHeartbeat() {
 					return       // 고루틴 종료
 				}
 
-				// 일반적인 네트워크 오류는 다음 하트비트에서 재시도
+				// 연속 실패가 임계값을 초과한 경우 K3s Agent 재시작 시도
+				if failureCount >= maxFailures {
+					log.Printf("🔄 연속 실패 %d회, K3s Agent 재시작 시도...", failureCount)
+					if s.k3sAgent != nil && s.k3sAgent.kubelet != nil {
+						if restartErr := s.k3sAgent.kubelet.restart(); restartErr != nil {
+							log.Printf("❌ Agent 재시작 실패: %v", restartErr)
+						} else {
+							failureCount = 0 // 재시작 성공 시 카운터 리셋
+							log.Printf("✅ Agent 재시작 완료, 하트비트 재개")
+						}
+					}
+				}
+			} else {
+				// 성공한 경우 실패 카운터 리셋
+				if failureCount > 0 {
+					log.Printf("✅ 하트비트 복구됨, 실패 카운터 리셋")
+					failureCount = 0
+				}
 			}
 		}
 	}()
@@ -968,18 +1013,71 @@ Kubelet은 K3s/Kubernetes의 노드 에이전트로, 다음 역할을 수행합�
 - error: kubelet 시작 과정에서 발생한 오류
 */
 func (k *Kubelet) Start() error {
-	log.Printf("🔧 Kubelet 시작 중... Node ID: %s", k.nodeID)
+	log.Printf("🔧 실제 K3s Agent 시작 중... Node ID: %s", k.nodeID)
 
-	// 🚧 TODO: 실제 구현에서는 K3s agent 프로세스 시작
-	// 예시: exec.Command("k3s", "agent", "--server", k.masterURL, "--node-name", k.nodeID).Start()
-	//
-	// K3s agent는 다음 작업을 수행합니다:
-	// 1. Nautilus TEE(마스터)와 연결 설정
-	// 2. 노드 정보 등록 (CPU, 메모리, 디스크 용량)
-	// 3. Pod 생성/삭제 명령 대기 및 실행
-	// 4. 컨테이너 상태를 마스터에 정기적으로 보고
+	k.mu.Lock()
+	defer k.mu.Unlock()
 
-	log.Printf("✅ Kubelet 시작 완료 (시뮬레이션 모드)")
+	if k.running {
+		return fmt.Errorf("kubelet이 이미 실행 중입니다")
+	}
+
+	// 기본 검증
+	if k.token == "" {
+		return fmt.Errorf("Seal 토큰이 설정되지 않았습니다")
+	}
+
+	// 데이터 디렉토리 생성
+	if err := os.MkdirAll(k.dataDir, 0755); err != nil {
+		return fmt.Errorf("데이터 디렉토리 생성 실패: %v", err)
+	}
+
+	// K3s 바이너리 확인
+	k3sBinary := "k3s"
+	if _, err := exec.LookPath(k3sBinary); err != nil {
+		// Windows에서 k3s.exe 확인
+		k3sBinary = "k3s.exe"
+		if _, err := exec.LookPath(k3sBinary); err != nil {
+			log.Printf("⚠️ k3s 바이너리를 찾을 수 없습니다. 시뮬레이션 모드로 실행합니다.")
+			k.running = true
+			return nil
+		}
+	}
+
+	// K3s agent 명령 구성
+	args := []string{
+		"agent",
+		"--server", k.masterURL,
+		"--token", k.token,
+		"--data-dir", k.dataDir,
+		"--node-name", k.nodeID,
+		"--kubelet-arg", "fail-swap-on=false",
+	}
+
+	log.Printf("🚀 K3s Agent 명령 실행: %s %s", k3sBinary, strings.Join(args, " "))
+
+	// K3s agent 프로세스 시작
+	k.cmd = exec.CommandContext(k.ctx, k3sBinary, args...)
+	k.cmd.Stdout = os.Stdout
+	k.cmd.Stderr = os.Stderr
+
+	if err := k.cmd.Start(); err != nil {
+		return fmt.Errorf("K3s Agent 시작 실패: %v", err)
+	}
+
+	k.running = true
+
+	// 별도 고루틴에서 프로세스 상태 모니터링
+	go func() {
+		if err := k.cmd.Wait(); err != nil {
+			log.Printf("⚠️ K3s Agent 프로세스 종료: %v", err)
+		}
+		k.mu.Lock()
+		k.running = false
+		k.mu.Unlock()
+	}()
+
+	log.Printf("✅ K3s Agent 프로세스 시작 완료! PID: %d", k.cmd.Process.Pid)
 	return nil
 }
 
@@ -1330,7 +1428,13 @@ func (s *StakerHost) Shutdown() {
 		log.Printf("💓 하트비트 서비스 중단됨")
 	}
 
-	// 2️⃣ 실행 중인 모든 컨테이너 정리
+	// 2️⃣ K3s Agent 종료
+	if s.k3sAgent != nil && s.k3sAgent.kubelet != nil {
+		log.Printf("🔧 K3s Agent 종료 중...")
+		s.k3sAgent.kubelet.Stop()
+	}
+
+	// 3️⃣ 실행 중인 모든 컨테이너 정리
 	if s.k3sAgent != nil && s.k3sAgent.runtime != nil {
 		log.Printf("🐳 실행 중인 컨테이너들 정리 중...")
 		containers, _ := s.k3sAgent.runtime.ListContainers()
