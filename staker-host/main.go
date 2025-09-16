@@ -16,12 +16,14 @@ K3s-DaaS 스테이커 호스트 (Staker Host) - K3s 워커 노드 + Sui 블록�
 package main
 
 import (
-	"encoding/json" // JSON 직렬화/역직렬화를 위한 패키지
-	"fmt"           // 포맷 문자열 처리
-	"log"           // 로깅
-	"net/http"      // HTTP 서버/클라이언트
-	"os"            // 운영체제 인터페이스 (환경변수, 파일 등)
-	"time"          // 시간 관련 함수들
+	"encoding/base64"  // Base64 인코딩/디코딩
+	"encoding/json"    // JSON 직렬화/역직렬화를 위한 패키지
+	"fmt"              // 포맷 문자열 처리
+	"log"              // 로깅
+	"net/http"         // HTTP 서버/클라이언트
+	"os"               // 운영체제 인터페이스 (환경변수, 파일 등)
+	"strings"
+	"time"             // 시간 관련 함수들
 
 	"github.com/go-resty/resty/v2" // HTTP 클라이언트 라이브러리 (Sui RPC 통신용)
 )
@@ -60,8 +62,9 @@ Sui 클라이언트 - Sui 블록체인과의 모든 통신을 담당
 */
 type SuiClient struct {
 	rpcEndpoint string        // Sui 테스트넷 RPC URL
-	privateKey  string        // 트랜잭션 서명용 개인키
+	privateKey  string        // 트랜잭션 서명용 개인키 (hex 형식)
 	client      *resty.Client // HTTP 클라이언트 (재사용 가능)
+	address     string        // 지갑 주소
 }
 
 /*
@@ -138,8 +141,9 @@ func NewStakerHost(configPath string) (*StakerHost, error) {
 	// 스테이킹, Seal 토큰 생성, 상태 조회에 사용됩니다.
 	suiClient := &SuiClient{
 		rpcEndpoint: config.SuiRPCEndpoint, // Sui 테스트넷 RPC 엔드포인트
-		privateKey:  config.SuiPrivateKey,  // 트랜잭션 서명용 개인키
+		privateKey:  config.SuiPrivateKey,  // 트랜잭션 서명용 개인키 (hex)
 		client:      resty.New(),           // 재사용 가능한 HTTP 클라이언트
+		address:     config.SuiWalletAddress, // 지갑 주소
 	}
 
 	// 3️⃣ K3s 워커 노드 에이전트 초기화
@@ -201,7 +205,14 @@ func (s *StakerHost) RegisterStake() error {
 		"method":  "sui_executeTransactionBlock", // Sui 트랜잭션 실행 메소드
 		"params": []interface{}{
 			map[string]interface{}{
-				"txBytes": s.buildStakingTransaction(), // 스테이킹 트랜잭션 바이트 (Move 컨트랙트 호출)
+				"txBytes": func() string {
+					txBytes, err := s.buildStakingTransaction()
+					if err != nil {
+						log.Printf("⚠️ 스테이킹 트랜잭션 빌드 실패: %v", err)
+						return ""
+					}
+					return txBytes
+				}(), // 스테이킹 트랜잭션 바이트 (Move 컨트랙트 호출)
 			},
 			[]string{s.config.SuiPrivateKey},        // 트랜잭션 서명용 개인키 배열
 			map[string]interface{}{
@@ -232,9 +243,9 @@ func (s *StakerHost) RegisterStake() error {
 
 	// 📝 스테이킹 Object ID 추출 (블록체인에서 생성된 스테이킹 증명)
 	// 이 Object ID는 나중에 Seal 토큰 생성에 사용됩니다.
-	stakeObjectID := s.extractStakeObjectID(stakeResult)
-	if stakeObjectID == "" {
-		return fmt.Errorf("스테이킹 Object ID를 찾을 수 없습니다")
+	stakeObjectID, err := s.extractStakeObjectID(stakeResult)
+	if err != nil {
+		return fmt.Errorf("스테이킹 Object ID 추출 실패: %v", err)
 	}
 
 	log.Printf("✅ 스테이킹 성공! Stake Object ID: %s", stakeObjectID)
@@ -248,7 +259,14 @@ func (s *StakerHost) RegisterStake() error {
 		"method":  "sui_executeTransactionBlock", // 같은 Sui 트랜잭션 실행 메소드
 		"params": []interface{}{
 			map[string]interface{}{
-				"txBytes": s.buildSealTokenTransaction(stakeObjectID), // Seal 토큰 생성 트랜잭션 (스테이킹 Object ID 포함)
+				"txBytes": func() string {
+					txBytes, err := s.buildSealTokenTransaction(stakeObjectID)
+					if err != nil {
+						log.Printf("⚠️ Seal 토큰 트랜잭션 빌드 실패: %v", err)
+						return ""
+					}
+					return txBytes
+				}(), // Seal 토큰 생성 트랜잭션 (스테이킹 Object ID 포함)
 			},
 			[]string{s.config.SuiPrivateKey},        // 동일한 개인키로 서명
 			map[string]interface{}{
@@ -279,9 +297,9 @@ func (s *StakerHost) RegisterStake() error {
 
 	// 🔑 Seal 토큰 추출 (블록체인에서 생성된 인증 토큰)
 	// 이 토큰이 기존 K3s join token을 완전히 대체합니다.
-	sealToken := s.extractSealToken(sealResult)
-	if sealToken == "" {
-		return fmt.Errorf("Seal 토큰을 찾을 수 없습니다")
+	sealToken, err := s.extractSealToken(sealResult)
+	if err != nil {
+		return fmt.Errorf("Seal 토큰 추출 실패: %v", err)
 	}
 
 	// 📊 스테이킹 상태 업데이트 - 모든 정보를 로컬에 저장
@@ -310,10 +328,43 @@ Sui Move 컨트랙트의 stake_for_node 함수를 호출하는 트랜잭션을 �
 반환값:
 - string: 직렬화된 트랜잭션 바이트 (Base64 인코딩)
 */
-func (s *StakerHost) buildStakingTransaction() string {
-	// 🚧 TODO: 실제 구현에서는 sui SDK를 사용하여 트랜잭션 빌드
-	// 예시: sui.NewTransactionBuilder().MoveCall(packageID, "staking", "stake_for_node", args)
-	return "PLACEHOLDER_STAKING_TX_BYTES"
+func (s *StakerHost) buildStakingTransaction() (string, error) {
+	// 🎯 스테이킹 컴트랙트 호출을 위한 트랜잭션 구성
+	// MoveCall 트랜잭션 데이터 구조화
+
+	// 📋 Move 함수 호출 데이터
+	moveCall := map[string]interface{}{
+		"packageObjectId": s.config.ContractAddress, // 스마트 컨트랙트 주소
+		"module":          "staking",                 // 모듈명
+		"function":        "stake_for_node",          // 함수명
+		"typeArguments":   []string{},                // 타입 인자 없음
+		"arguments": []interface{}{
+			s.config.StakeAmount, // 스테이킹 양 (MIST 단위)
+			s.config.NodeID,      // 노드 ID
+		},
+	}
+
+	// 🏗️ 트랜잭션 블록 구성
+	txBlock := map[string]interface{}{
+		"version":    1,
+		"sender":     s.suiClient.address,
+		"gasPayment": nil,    // 자동으로 가스 코인 선택
+		"gasBudget":  "10000000", // 10M MIST 가스 한도
+		"gasPrice":   "1000", // 가스 가격
+		"transactions": []interface{}{
+			map[string]interface{}{
+				"MoveCall": moveCall,
+			},
+		},
+	}
+
+	// 📤 JSON으로 직렬화 후 Base64 인코딩
+	txJSON, err := json.Marshal(txBlock)
+	if err != nil {
+		return "", fmt.Errorf("트랜잭션 직렬화 실패: %v", err)
+	}
+
+	return base64.StdEncoding.EncodeToString(txJSON), nil
 }
 
 /*
@@ -328,10 +379,42 @@ Seal 토큰 트랜잭션 빌드 함수
 반환값:
 - string: 직렬화된 트랜잭션 바이트 (Base64 인코딩)
 */
-func (s *StakerHost) buildSealTokenTransaction(stakeObjectID string) string {
-	// 🚧 TODO: 실제 구현에서는 sui SDK를 사용하여 Seal 토큰 생성 트랜잭션 빌드
-	// 예시: sui.NewTransactionBuilder().MoveCall(packageID, "k8s_gateway", "create_worker_seal_token", [stakeObjectID])
-	return "PLACEHOLDER_SEAL_TOKEN_TX_BYTES"
+func (s *StakerHost) buildSealTokenTransaction(stakeObjectID string) (string, error) {
+	// 🎯 k8s_gateway::create_worker_seal_token 호출
+	// 스테이킹 검증 후 워커 노드용 Seal 토큰 생성
+
+	// 📝 Move 함수 호출 데이터
+	moveCall := map[string]interface{}{
+		"packageObjectId": s.config.ContractAddress, // k8s_gateway 컴트랙트 주소
+		"module":          "k8s_gateway",             // 모듈명
+		"function":        "create_worker_seal_token", // Seal 토큰 생성 함수
+		"typeArguments":   []string{},                 // 타입 인수 없음
+		"arguments": []interface{}{
+			stakeObjectID, // 스테이킹 객체 ID 전달
+		},
+	}
+
+	// 🏗️ 트랜잭션 블록 구성
+	txBlock := map[string]interface{}{
+		"version":    1,
+		"sender":     s.suiClient.address,
+		"gasPayment": nil,       // 자동으로 가스 코인 선택
+		"gasBudget":  "5000000", // 5M MIST 가스 한도
+		"gasPrice":   "1000",    // 가스 가격
+		"transactions": []interface{}{
+			map[string]interface{}{
+				"MoveCall": moveCall,
+			},
+		},
+	}
+
+	// 📤 JSON 직렬화 후 Base64 인코딩
+	txJSON, err := json.Marshal(txBlock)
+	if err != nil {
+		return "", fmt.Errorf("Seal 토큰 트랜잭션 직렬화 실패: %v", err)
+	}
+
+	return base64.StdEncoding.EncodeToString(txJSON), nil
 }
 
 /*
@@ -347,10 +430,33 @@ StakeRecord 타입의 오브젝트 ID를 추출합니다.
 반환값:
 - string: 스테이킹 오브젝트 ID (0x로 시작하는 64자리 hex)
 */
-func (s *StakerHost) extractStakeObjectID(result map[string]interface{}) string {
-	// 🚧 TODO: 실제 Sui 응답 파싱 로직 구현
-	// result["result"]["objectChanges"]에서 "created" 오브젝트들 중 StakeRecord 타입 찾기
-	return "0x" + s.config.NodeID + "_stake"
+func (s *StakerHost) extractStakeObjectID(result map[string]interface{}) (string, error) {
+	// 🔍 Sui 응답에서 새로 생성된 StakeRecord 객체 찾기
+	if resultData, exists := result["result"]; exists {
+		if resultMap, ok := resultData.(map[string]interface{}); ok {
+			if objectChanges, exists := resultMap["objectChanges"]; exists {
+				if changes, ok := objectChanges.([]interface{}); ok {
+					// 🔎 "created" 타입의 오브젝트 중 StakeRecord 찾기
+					for _, change := range changes {
+						if changeMap, ok := change.(map[string]interface{}); ok {
+							if changeType, exists := changeMap["type"]; exists && changeType == "created" {
+								if objectType, exists := changeMap["objectType"]; exists {
+									// 📎 StakeRecord 타입 확인
+									if strings.Contains(objectType.(string), "StakeRecord") {
+										if objectId, exists := changeMap["objectId"]; exists {
+											return objectId.(string), nil
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("스테이킹 객체 ID를 찾을 수 없습니다")
 }
 
 /*
@@ -366,10 +472,33 @@ Sui 트랜잭션 실행 결과에서 새로 생성된 Seal 토큰을 찾습니�
 반환값:
 - string: Seal 토큰 (Nautilus TEE 인증에 사용)
 */
-func (s *StakerHost) extractSealToken(result map[string]interface{}) string {
-	// 🚧 TODO: 실제 Sui 응답 파싱 로직 구현
-	// result["result"]["objectChanges"]에서 SealToken 타입 오브젝트 찾기
-	return "seal_" + s.config.NodeID + "_" + fmt.Sprintf("%d", time.Now().Unix())
+func (s *StakerHost) extractSealToken(result map[string]interface{}) (string, error) {
+	// 🔍 Sui 응답에서 새로 생성된 SealToken 객체 찾기
+	if resultData, exists := result["result"]; exists {
+		if resultMap, ok := resultData.(map[string]interface{}); ok {
+			if objectChanges, exists := resultMap["objectChanges"]; exists {
+				if changes, ok := objectChanges.([]interface{}); ok {
+					// 🔎 "created" 타입의 오브젝트 중 SealToken 찾기
+					for _, change := range changes {
+						if changeMap, ok := change.(map[string]interface{}); ok {
+							if changeType, exists := changeMap["type"]; exists && changeType == "created" {
+								if objectType, exists := changeMap["objectType"]; exists {
+									// 📎 SealToken 타입 확인
+									if strings.Contains(objectType.(string), "SealToken") {
+										if objectId, exists := changeMap["objectId"]; exists {
+											return objectId.(string), nil
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("Seal 토큰을 찾을 수 없습니다")
 }
 
 /*
@@ -505,7 +634,14 @@ func (s *StakerHost) getNautilusInfoWithSeal() (*NautilusInfo, error) {
 		"method":  "sui_executeTransactionBlock", // Sui 트랜잭션 실행
 		"params": []interface{}{
 			map[string]interface{}{
-				"txBytes": s.buildNautilusQueryTransaction(), // Nautilus 정보 조회 트랜잭션
+				"txBytes": func() string {
+					txBytes, err := s.buildNautilusQueryTransaction()
+					if err != nil {
+						log.Printf("⚠️ Nautilus 조회 트랜잭션 빌드 실패: %v", err)
+						return ""
+					}
+					return txBytes
+				}(), // Nautilus 정보 조회 트랜잭션
 			},
 			[]string{s.config.SuiPrivateKey}, // 트랜잭션 서명용 개인키
 			map[string]interface{}{
@@ -546,10 +682,42 @@ Nautilus TEE의 실제 엔드포인트 정보를 반환합니다.
 반환값:
 - string: 직렬화된 트랜잭션 바이트 (Base64 인코딩)
 */
-func (s *StakerHost) buildNautilusQueryTransaction() string {
-	// 🚧 TODO: 실제 구현에서는 Sui SDK를 사용하여 트랜잭션 빌드
-	// 예시: sui.NewTransactionBuilder().MoveCall(packageID, "k8s_gateway", "get_nautilus_info_for_worker", [seal_token])
-	return "PLACEHOLDER_NAUTILUS_QUERY_TX_BYTES"
+func (s *StakerHost) buildNautilusQueryTransaction() (string, error) {
+	// 🎯 k8s_gateway::get_nautilus_info_for_worker 호출
+	// Seal 토큰 검증 후 Nautilus 연결 정보 반환
+
+	// 📝 Move 함수 호출 데이터
+	moveCall := map[string]interface{}{
+		"packageObjectId": s.config.ContractAddress,        // k8s_gateway 컴트랙트 주소
+		"module":          "k8s_gateway",                   // 모듈명
+		"function":        "get_nautilus_info_for_worker", // Nautilus 정보 조회 함수
+		"typeArguments":   []string{},                       // 타입 인수 없음
+		"arguments": []interface{}{
+			s.stakingStatus.SealToken, // Seal 토큰 ID 전달
+		},
+	}
+
+	// 🏗️ 트랜잭션 블록 구성
+	txBlock := map[string]interface{}{
+		"version":    1,
+		"sender":     s.suiClient.address,
+		"gasPayment": nil,       // 자동으로 가스 코인 선택
+		"gasBudget":  "3000000", // 3M MIST 가스 한도
+		"gasPrice":   "1000",    // 가스 가격
+		"transactions": []interface{}{
+			map[string]interface{}{
+				"MoveCall": moveCall,
+			},
+		},
+	}
+
+	// 📤 JSON 직렬화 후 Base64 인코딩
+	txJSON, err := json.Marshal(txBlock)
+	if err != nil {
+		return "", fmt.Errorf("Nautilus 조회 트랜잭션 직렬화 실패: %v", err)
+	}
+
+	return base64.StdEncoding.EncodeToString(txJSON), nil
 }
 
 /*

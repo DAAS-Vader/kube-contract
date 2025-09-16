@@ -11,7 +11,11 @@
       "WebFetch(domain:docs.sui.io)",
       "WebFetch(domain:github.com)",
       "Bash(go mod:*)",
-      "Bash(go build:*)"
+      "Bash(go build:*)",
+      "Bash(go doc:*)",
+      "Bash(go list:*)",
+      "Bash(go get:*)",
+      "Bash(./staker-host:*)"
     ],
     "deny": [],
     "ask": []
