@@ -1,0 +1,9 @@
+{
+  "node_id": "staker-worker-1",
+  "sui_wallet_address": "0x1234567890abcdef1234567890abcdef12345678",
+  "sui_private_key": "ed25519_private_key_hex_64_chars_placeholder_000000000000000000000000",
+  "sui_rpc_endpoint": "https://fullnode.mainnet.sui.io",
+  "stake_amount": 1000,
+  "contract_address": "0xabcdef1234567890abcdef1234567890abcdef12",
+  "min_stake_amount": 1000
+}

@@ -1,6 +1,15 @@
-module github.com/k3s-io/k3s
+module github.com/k3s-daas/staker-host
 
-go 1.24.6
+go 1.21
+
+require (
+	github.com/coming-chat/go-sui v0.0.0-20240101000000-000000000000
+	github.com/go-resty/resty/v2 v2.7.0
+	github.com/sirupsen/logrus v1.9.3
+	k8s.io/api v0.28.2
+	k8s.io/apimachinery v0.28.2
+	k8s.io/client-go v0.28.2
+)
 
 replace (
 	github.com/Microsoft/hcsshim => github.com/Microsoft/hcsshim v0.12.9

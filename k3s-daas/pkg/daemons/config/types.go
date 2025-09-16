@@ -261,6 +261,13 @@ type Control struct {
 	PrivateIP   string
 	Runtime     *ControlRuntime `json:"-"`
 	Cluster     Cluster         `json:"-"`
+
+	// DaaS integration fields
+	NautilusClient     interface{} `json:"-"` // nautilus.NautilusClient interface
+	StorageRouter      interface{} `json:"-"` // storage.StorageRouter interface
+	SuiClient          interface{} `json:"-"` // sui.SuiClient interface
+	DaaSConfig         interface{} `json:"-"` // security.DaaSConfig interface
+	KubectlAuthHandler interface{} `json:"-"` // security.KubectlAuthHandler interface
 }
 
 // BindAddressOrLoopback returns an IPv4 or IPv6 address suitable for embedding in

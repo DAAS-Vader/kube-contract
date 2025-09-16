@@ -30,7 +30,10 @@ type SealConfig struct {
 
 // StakeConfig contains staking configuration
 type StakeConfig struct {
-	MinStake         string        `json:"min_stake" yaml:"min_stake" env:"DAAS_MIN_STAKE"`
+	MinStake         uint64        `json:"min_stake" yaml:"min_stake" env:"DAAS_MIN_STAKE"`
+	MinNodeStake     uint64        `json:"min_node_stake" yaml:"min_node_stake" env:"DAAS_MIN_NODE_STAKE"`
+	MinUserStake     uint64        `json:"min_user_stake" yaml:"min_user_stake" env:"DAAS_MIN_USER_STAKE"`
+	MinAdminStake    uint64        `json:"min_admin_stake" yaml:"min_admin_stake" env:"DAAS_MIN_ADMIN_STAKE"`
 	ValidatorCacheTTL time.Duration `json:"validator_cache_ttl" yaml:"validator_cache_ttl" env:"DAAS_VALIDATOR_CACHE_TTL"`
 	CheckInterval    time.Duration `json:"check_interval" yaml:"check_interval" env:"DAAS_STAKE_CHECK_INTERVAL"`
 }
@@ -52,7 +55,10 @@ func DefaultDaaSConfig() *DaaSConfig {
 			ChallengeExpiry: 5 * time.Minute,
 		},
 		StakeConfig: &StakeConfig{
-			MinStake:         "1000000000", // 1 SUI
+			MinStake:         100,        // 0.0000001 SUI (100 MIST) - 테스트넷용 매우 낮은 금액
+			MinNodeStake:     1000,       // 0.000001 SUI (1000 MIST) - 워커 노드용
+			MinUserStake:     100,        // 0.0000001 SUI (100 MIST) - 일반 사용자용
+			MinAdminStake:    10000,      // 0.00001 SUI (10000 MIST) - 관리자용
 			ValidatorCacheTTL: 5 * time.Minute,
 			CheckInterval:    30 * time.Second,
 		},
