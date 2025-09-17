@@ -6,6 +6,7 @@ module k3s_daas::k8s_gateway {
     use sui::event;
     use std::string::{Self, String};
     use std::vector;
+    use k3s_daas::staking::{StakingPool, StakeRecord};
 
     // Errors
     const E_INSUFFICIENT_STAKE: u64 = 1;
@@ -251,8 +252,33 @@ module k3s_daas::k8s_gateway {
     }
 
     fun generate_token_hash(ctx: &mut TxContext): String {
-        // 실제로는 cryptographic hash 사용
-        string::utf8(b"seal_token_hash_placeholder")
+        // Generate cryptographic hash using transaction context and timestamp
+        let tx_hash = tx_context::digest(ctx);
+        let timestamp = tx_context::epoch_timestamp_ms(ctx);
+
+        // Combine tx hash and timestamp for unique seal token
+        let mut hash_bytes = vector::empty<u8>();
+        vector::append(&mut hash_bytes, *tx_hash);
+        vector::append(&mut hash_bytes, timestamp.to_be_bytes());
+
+        // Convert to hex string for seal token
+        let hex_chars = b"0123456789abcdef";
+        let mut result = vector::empty<u8>();
+        vector::push_back(&mut result, 0x73); // 's'
+        vector::push_back(&mut result, 0x65); // 'e'
+        vector::push_back(&mut result, 0x61); // 'a'
+        vector::push_back(&mut result, 0x6c); // 'l'
+        vector::push_back(&mut result, 0x5f); // '_'
+
+        let mut i = 0;
+        while (i < 16 && i < vector::length(&hash_bytes)) {
+            let byte = *vector::borrow(&hash_bytes, i);
+            vector::push_back(&mut result, *vector::borrow(hex_chars, ((byte >> 4) as u64)));
+            vector::push_back(&mut result, *vector::borrow(hex_chars, ((byte & 0x0f) as u64)));
+            i = i + 1;
+        };
+
+        string::utf8(result)
     }
 
     fun extract_resource_name(payload: &vector<u8>): String {

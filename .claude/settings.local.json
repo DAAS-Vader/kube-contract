@@ -15,7 +15,9 @@
       "Bash(go doc:*)",
       "Bash(go list:*)",
       "Bash(go get:*)",
-      "Bash(./staker-host:*)"
+      "Bash(./staker-host:*)",
+      "Bash(grep:*)",
+      "Bash(timeout:*)"
     ],
     "deny": [],
     "ask": []

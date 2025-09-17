@@ -315,9 +315,9 @@ module k8s_interface::staking {
             return false
         };
 
-        // For this simplified version, we'll assume sufficient stake if record exists
-        // In a full implementation, we'd fetch the actual stake record and check amount
-        true
+        // Check actual stake amount against minimum requirement
+        let stake_record = table::borrow(&pool.stakes, node_id);
+        stake_record.amount >= min_stake_amount
     }
 
     /// Check if node has active stake

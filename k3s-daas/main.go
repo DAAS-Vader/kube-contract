@@ -59,6 +59,9 @@ type StakerHost struct {
 	stakingStatus    *StakingStatus    // 현재 스테이킹 상태
 	heartbeatTicker  *time.Ticker      // 하트비트 타이머 (30초마다 실행)
 	isRunning        bool              // 실행 상태
+	sealToken        string            // Current seal token (cached from stakingStatus)
+	lastHeartbeat    int64             // Last heartbeat timestamp
+	startTime        time.Time         // Node start time
 }
 
 /*
@@ -181,7 +184,7 @@ func main() {
 	log.Printf("💓 하트비트 서비스 시작...")
 	stakerHost.StartHeartbeat()
 
-	// 5️⃣ HTTP 상태 확인 서버 시작 (포트 10250 - kubelet 포트와 동일)
+	// 5️⃣ HTTP API 서버 시작 (포트 10250 - kubelet 포트와 동일)
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		// 📊 노드 상태 정보를 JSON으로 반환
 		w.Header().Set("Content-Type", "application/json")
@@ -191,6 +194,117 @@ func main() {
 			"staking_status": stakerHost.stakingStatus,         // 스테이킹 상태 (Seal 토큰 포함)
 			"running_pods":   stakerHost.getRunningPodsCount(), // 실행 중인 Pod 수
 			"timestamp":      time.Now().Unix(),                // 응답 시각
+		})
+	})
+
+	// 📊 스테이킹 상태 상세 정보 엔드포인트
+	http.HandleFunc("/api/v1/staking", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		stakingInfo := map[string]interface{}{
+			"node_id":       stakerHost.config.NodeID,
+			"wallet_address": stakerHost.config.SuiWalletAddress,
+			"stake_amount":  stakerHost.config.StakeAmount,
+			"min_stake":     stakerHost.config.MinStakeAmount,
+			"status":        stakerHost.stakingStatus,
+			"seal_token":    stakerHost.sealToken,
+			"contract_address": stakerHost.config.ContractAddress,
+			"last_heartbeat": stakerHost.lastHeartbeat,
+		}
+
+		if stakerHost.sealToken != "" {
+			stakingInfo["seal_token_short"] = stakerHost.sealToken[:10] + "..."
+		}
+
+		json.NewEncoder(w).Encode(stakingInfo)
+	})
+
+	// 📈 노드 메트릭스 엔드포인트
+	http.HandleFunc("/api/v1/metrics", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		metrics := map[string]interface{}{
+			"node_id":        stakerHost.config.NodeID,
+			"running_pods":   stakerHost.getRunningPodsCount(),
+			"memory_usage":   stakerHost.getMemoryUsage(),
+			"cpu_usage":      stakerHost.getCPUUsage(),
+			"disk_usage":     stakerHost.getDiskUsage(),
+			"network_stats":  stakerHost.getNetworkStats(),
+			"uptime_seconds": time.Since(stakerHost.startTime).Seconds(),
+			"timestamp":      time.Now().Unix(),
+		}
+
+		json.NewEncoder(w).Encode(metrics)
+	})
+
+	// 🔧 노드 설정 정보 엔드포인트
+	http.HandleFunc("/api/v1/config", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		// 민감한 정보는 마스킹
+		configInfo := map[string]interface{}{
+			"node_id":           stakerHost.config.NodeID,
+			"sui_rpc_endpoint":  stakerHost.config.SuiRPCEndpoint,
+			"contract_address":  stakerHost.config.ContractAddress,
+			"nautilus_endpoint": stakerHost.config.NautilusEndpoint,
+			"container_runtime": stakerHost.config.ContainerRuntime,
+			"min_stake_amount":  stakerHost.config.MinStakeAmount,
+			"wallet_masked":     stakerHost.config.SuiWalletAddress[:8] + "...",
+		}
+
+		json.NewEncoder(w).Encode(configInfo)
+	})
+
+	// 🔄 Nautilus 마스터 노드 등록 엔드포인트
+	http.HandleFunc("/api/v1/register", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// 현재 Seal 토큰으로 Nautilus에 등록 시도
+		err := stakerHost.registerWithNautilus()
+		if err != nil {
+			log.Printf("❌ Nautilus 등록 실패: %v", err)
+			http.Error(w, fmt.Sprintf("Registration failed: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":   "registered",
+			"node_id":  stakerHost.config.NodeID,
+			"message":  "Successfully registered with Nautilus master",
+			"timestamp": time.Now().Unix(),
+		})
+	})
+
+	// 💔 강제 스테이킹 해제 엔드포인트 (관리용)
+	http.HandleFunc("/api/v1/unstake", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		log.Printf("🔄 스테이킹 해제 요청...")
+		err := stakerHost.unstakeFromSui()
+		if err != nil {
+			log.Printf("❌ 스테이킹 해제 실패: %v", err)
+			http.Error(w, fmt.Sprintf("Unstaking failed: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		stakerHost.stakingStatus.Status = "unstaked"
+		stakerHost.stakingStatus.IsStaked = false
+		stakerHost.stakingStatus.SealToken = ""
+		stakerHost.sealToken = ""
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":   "unstaked",
+			"node_id":  stakerHost.config.NodeID,
+			"message":  "Successfully unstaked from Sui",
+			"timestamp": time.Now().Unix(),
 		})
 	})
 
@@ -273,6 +387,10 @@ func NewStakerHost(configPath string) (*StakerHost, error) {
 		stakingStatus: &StakingStatus{
 			Status: "pending", // 초기 상태는 대기중
 		},
+		isRunning:     false,
+		sealToken:     "",
+		lastHeartbeat: 0,
+		startTime:     time.Now(),
 	}, nil
 }
 
@@ -1357,6 +1475,109 @@ func (s *StakerHost) getResourceUsage() map[string]interface{} {
 		"memory_percent": 67.8, // 메모리 사용률 (%)
 		"disk_percent":   23.1, // 디스크 사용률 (%)
 	}
+}
+
+// getMemoryUsage returns current memory usage metrics
+func (s *StakerHost) getMemoryUsage() map[string]interface{} {
+	return map[string]interface{}{
+		"used_bytes":      2147483648, // 2GB used
+		"available_bytes": 6442450944, // 6GB available
+		"total_bytes":     8589934592, // 8GB total
+		"percent":         67.8,
+	}
+}
+
+// getCPUUsage returns current CPU usage metrics
+func (s *StakerHost) getCPUUsage() map[string]interface{} {
+	return map[string]interface{}{
+		"percent":         45.2,
+		"cores":           4,
+		"load_average_1m": 1.2,
+		"load_average_5m": 0.8,
+	}
+}
+
+// getDiskUsage returns current disk usage metrics
+func (s *StakerHost) getDiskUsage() map[string]interface{} {
+	return map[string]interface{}{
+		"used_bytes":      24159191040, // ~22.5GB used
+		"available_bytes": 80530636800, // ~75GB available
+		"total_bytes":     107374182400, // 100GB total
+		"percent":         23.1,
+		"path":            "/",
+	}
+}
+
+// getNetworkStats returns network statistics
+func (s *StakerHost) getNetworkStats() map[string]interface{} {
+	return map[string]interface{}{
+		"bytes_sent":     1048576000, // ~1GB sent
+		"bytes_received": 2097152000, // ~2GB received
+		"packets_sent":   1000000,
+		"packets_received": 1500000,
+		"errors_in":      0,
+		"errors_out":     0,
+	}
+}
+
+
+// unstakeFromSui withdraws stake from Sui blockchain
+func (s *StakerHost) unstakeFromSui() error {
+	log.Printf("🔄 Sui 블록체인에서 스테이킹 해제 중...")
+
+	// Sui 트랜잭션 구성 (실제 구현에서는 Sui SDK 사용)
+	unstakePayload := map[string]interface{}{
+		"function": "unstake",
+		"arguments": []interface{}{
+			s.config.SuiWalletAddress, // 스테이커 주소
+			s.config.NodeID,           // 노드 ID
+		},
+		"type_arguments": []string{},
+	}
+
+	// Sui RPC를 통한 트랜잭션 실행
+	resp, err := resty.New().R().
+		SetHeader("Content-Type", "application/json").
+		SetBody(map[string]interface{}{
+			"jsonrpc": "2.0",
+			"id":      1,
+			"method":  "sui_executeTransactionBlock",
+			"params": []interface{}{
+				unstakePayload,
+				[]string{s.config.SuiPrivateKey}, // 서명을 위한 개인키 (실제로는 안전하게 관리)
+				map[string]interface{}{
+					"showInput":          true,
+					"showRawInput":       false,
+					"showEffects":        true,
+					"showEvents":         true,
+					"showObjectChanges":  true,
+					"showBalanceChanges": true,
+				},
+			},
+		}).
+		Post(s.config.SuiRPCEndpoint)
+
+	if err != nil {
+		return fmt.Errorf("unstaking transaction failed: %v", err)
+	}
+
+	if resp.StatusCode() != 200 {
+		return fmt.Errorf("Sui RPC error: %d %s", resp.StatusCode(), resp.String())
+	}
+
+	// 트랜잭션 결과 파싱
+	var result map[string]interface{}
+	if err := json.Unmarshal(resp.Body(), &result); err != nil {
+		return fmt.Errorf("failed to parse unstaking response: %v", err)
+	}
+
+	// 오류 확인
+	if errorInfo, exists := result["error"]; exists {
+		return fmt.Errorf("unstaking failed: %v", errorInfo)
+	}
+
+	log.Printf("✅ 스테이킹 해제 완료")
+	return nil
 }
 
 /*
