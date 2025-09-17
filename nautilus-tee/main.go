@@ -38,6 +38,7 @@ type NautilusMaster struct {
 	etcdStore          *TEEEtcdStore
 	suiEventListener   *SuiEventListener
 	sealTokenValidator *SealTokenValidator
+	enhancedSealValidator *EnhancedSealTokenValidator
 	teeAttestationKey  []byte
 	enclaveMeasurement string
 	logger             *logrus.Logger
@@ -48,6 +49,7 @@ type SealTokenValidator struct {
 	suiRPCEndpoint  string
 	contractAddress string
 	logger          *logrus.Logger
+	enhancedValidator *EnhancedSealTokenValidator
 }
 
 // 워커 노드 등록 요청 (Seal 토큰 포함)
@@ -329,11 +331,15 @@ func (n *NautilusMaster) Start() error {
 		sealingKey:    n.teeAttestationKey,
 	}
 
-	// Seal 토큰 검증기 초기화
+	// Enhanced Seal 토큰 검증기 초기화
+	n.enhancedSealValidator = NewEnhancedSealTokenValidator(n.logger)
+
+	// 기존 호환성을 위한 래퍼 초기화
 	n.sealTokenValidator = &SealTokenValidator{
 		suiRPCEndpoint:  "https://fullnode.testnet.sui.io:443",
 		contractAddress: os.Getenv("CONTRACT_ADDRESS"),
 		logger:          n.logger,
+		enhancedValidator: n.enhancedSealValidator,
 	}
 
 	// Sui 이벤트 리스너 시작
@@ -342,10 +348,11 @@ func (n *NautilusMaster) Start() error {
 		return fmt.Errorf("failed to subscribe to Sui events: %v", err)
 	}
 
-	// K8s 마스터 컴포넌트들 시작 (TEE 내에서)
-	n.logger.Info("TEE: Starting API Server in enclave...")
-	n.logger.Info("TEE: Starting Controller Manager in enclave...")
-	n.logger.Info("TEE: Starting Scheduler in enclave...")
+	// 🚀 실제 K3s Control Plane 시작 (TEE 내에서)
+	n.logger.Info("TEE: Starting K3s Control Plane components...")
+	if err := n.startK3sControlPlane(); err != nil {
+		return fmt.Errorf("failed to start K3s Control Plane: %v", err)
+	}
 
 	// TEE 상태 확인 엔드포인트
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -373,7 +380,16 @@ func (n *NautilusMaster) Start() error {
 	// 워커 노드 하트비트 엔드포인트
 	http.HandleFunc("/api/v1/nodes/heartbeat", n.handleWorkerHeartbeat)
 
+	// 🚀 kubectl 호환을 위한 K8s API 프록시 엔드포인트
+	http.HandleFunc("/api/", n.handleKubernetesAPIProxy)
+	http.HandleFunc("/apis/", n.handleKubernetesAPIProxy)
+
+	// kubectl 설정 및 헬스체크 엔드포인트
+	http.HandleFunc("/kubectl/config", n.handleKubectlConfig)
+	http.HandleFunc("/kubectl/health", n.handleKubectlHealthCheck)
+
 	n.logger.Info("TEE: Nautilus K3s Master started successfully")
+	n.logger.Info("🚀 kubectl 명령어 지원: kubectl --server=http://localhost:8080 get pods")
 	return http.ListenAndServe(":8080", nil)
 }
 
@@ -553,6 +569,12 @@ func (n *NautilusMaster) handleWorkerHeartbeat(w http.ResponseWriter, r *http.Re
 
 // Seal 토큰 검증 구현
 func (s *SealTokenValidator) ValidateSealToken(sealToken string) bool {
+	// Enhanced Seal Token 검증 사용
+	if s.enhancedValidator != nil {
+		return s.enhancedValidator.ValidateSealToken(sealToken)
+	}
+
+	// 기존 호환성 검증 (fallback)
 	// Seal token format validation
 	if len(sealToken) < 10 || !strings.HasPrefix(sealToken, "seal_") {
 		s.logger.Warn("Invalid Seal token format", logrus.Fields{
@@ -853,6 +875,7 @@ func (n *NautilusMaster) getSecurityLevel() int {
 		return 1 // Simulation mode - minimal security
 	}
 }
+
 
 func main() {
 	// Logger 초기화

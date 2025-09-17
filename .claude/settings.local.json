@@ -20,7 +20,10 @@
       "Bash(timeout:*)",
       "Bash(curl:*)",
       "Bash(MOCK_MODE=true timeout 10s ./k3s-daas-worker)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(go vet:*)",
+      "Bash(bash:*)",
+      "Bash(./comprehensive_test.sh:*)"
     ],
     "deny": [],
     "ask": []

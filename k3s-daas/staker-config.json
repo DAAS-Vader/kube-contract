@@ -1,11 +1,1 @@
-{
-  "node_id": "k3s-daas-worker-001",
-  "sui_wallet_address": "0x1234567890abcdef1234567890abcdef12345678",
-  "sui_private_key": "your_sui_private_key_here",
-  "sui_rpc_endpoint": "https://fullnode.testnet.sui.io:443",
-  "stake_amount": 1000000000,
-  "contract_address": "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
-  "nautilus_endpoint": "http://127.0.0.1:8080",
-  "container_runtime": "docker",
-  "min_stake_amount": 1000000000
-}
+{"node_id":"test-worker-001","sui_endpoint":"https://sui-testnet.nodereal.io","private_key":"test-key","k3s_master_endpoint":"http://localhost:8080","heartbeat_interval":30,"mock_mode":true}

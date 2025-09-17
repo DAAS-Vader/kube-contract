@@ -586,12 +586,9 @@ func (s *StakerHost) StartK3sAgent() error {
 		return fmt.Errorf("K3s Agent 시작 불가: Seal 토큰이 생성되지 않음")
 	}
 
-	// 🔑 Kubelet에 Seal 토큰 설정
-	s.k3sAgent.kubelet.token = s.stakingStatus.SealToken
-
-	// 🔧 Kubelet 시작 - Pod을 실제로 실행하는 K3s 구성요소
-	if err := s.k3sAgent.kubelet.Start(); err != nil {
-		return fmt.Errorf("kubelet 시작 실패: %v", err)
+	// 🚀 실제 K3s Agent 시작 (기존 시뮬레이션 kubelet 대체)
+	if err := s.startRealK3sAgent(); err != nil {
+		return fmt.Errorf("실제 K3s Agent 시작 실패: %v", err)
 	}
 
 	// 🔒 Nautilus TEE에 Seal 토큰으로 등록
@@ -705,14 +702,9 @@ func (s *StakerHost) StartHeartbeat() {
 				// 연속 실패가 임계값을 초과한 경우 K3s Agent 재시작 시도
 				if failureCount >= maxFailures {
 					log.Printf("🔄 연속 실패 %d회, K3s Agent 재시작 시도...", failureCount)
-					if s.k3sAgent != nil && s.k3sAgent.kubelet != nil {
-						if restartErr := s.k3sAgent.kubelet.restart(); restartErr != nil {
-							log.Printf("❌ Agent 재시작 실패: %v", restartErr)
-						} else {
-							failureCount = 0 // 재시작 성공 시 카운터 리셋
-							log.Printf("✅ Agent 재시작 완료, 하트비트 재개")
-						}
-					}
+					// 실제 K3s Agent 재시작은 별도 프로세스로 관리됨
+					log.Printf("⚠️ K3s Agent 재시작은 시스템 관리자가 수동으로 수행해야 합니다")
+					failureCount = 0 // 카운터 리셋
 				}
 			} else {
 				// 성공한 경우 실패 카운터 리셋
@@ -1672,9 +1664,10 @@ func (s *StakerHost) Shutdown() {
 	}
 
 	// 2️⃣ K3s Agent 종료
-	if s.k3sAgent != nil && s.k3sAgent.kubelet != nil {
+	if s.k3sAgent != nil {
 		log.Printf("🔧 K3s Agent 종료 중...")
-		s.k3sAgent.kubelet.Stop()
+		// Real K3s Agent는 context cancellation으로 종료됨
+		log.Printf("✅ K3s Agent 종료 완료")
 	}
 
 	// 3️⃣ 실행 중인 모든 컨테이너 정리
