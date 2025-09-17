@@ -171,13 +171,27 @@ func main() {
 	// 이 단계가 성공해야만 클러스터에 참여할 수 있습니다.
 	log.Printf("🌊 Sui 블록체인 스테이킹 시작...")
 	if err := stakerHost.RegisterStake(); err != nil {
-		log.Fatalf("❌ 스테이킹 등록 실패: %v", err)
+		// 개발/테스트 환경에서는 Mock 데이터로 계속 진행
+		if os.Getenv("MOCK_MODE") == "true" {
+			log.Printf("⚠️ 스테이킹 실패하지만 Mock 모드로 계속 진행: %v", err)
+			stakerHost.stakingStatus.IsStaked = true
+			stakerHost.stakingStatus.Status = "mock"
+			stakerHost.stakingStatus.SealToken = "seal_mock_token_for_testing_12345678"
+			stakerHost.sealToken = "seal_mock_token_for_testing_12345678"
+		} else {
+			log.Fatalf("❌ 스테이킹 등록 실패: %v", err)
+		}
 	}
 
 	// 3️⃣ K3s Agent (kubelet + 컨테이너 런타임) 시작 및 Nautilus TEE 등록
 	log.Printf("🔧 K3s Agent 및 Nautilus TEE 연결 시작...")
 	if err := stakerHost.StartK3sAgent(); err != nil {
-		log.Fatalf("❌ K3s Agent 시작 실패: %v", err)
+		// 개발/테스트 환경에서는 Mock 모드로 계속 진행
+		if os.Getenv("MOCK_MODE") == "true" {
+			log.Printf("⚠️ K3s Agent 시작 실패하지만 Mock 모드로 계속 진행: %v", err)
+		} else {
+			log.Fatalf("❌ K3s Agent 시작 실패: %v", err)
+		}
 	}
 
 	// 4️⃣ 백그라운드 하트비트 서비스 시작 (30초마다 스테이킹 상태 검증)
@@ -531,6 +545,9 @@ func (s *StakerHost) RegisterStake() error {
 	s.stakingStatus.Status = "active"                  // 활성 상태로 설정
 	s.stakingStatus.LastValidation = time.Now().Unix() // 현재 시간으로 검증 시각 설정
 
+	// 🔄 캐시된 sealToken 필드도 동기화
+	s.sealToken = sealToken
+
 	// 🔑 K3s Agent에서 Seal 토큰을 사용하도록 설정 업데이트
 	if s.k3sAgent != nil && s.k3sAgent.kubelet != nil {
 		s.k3sAgent.kubelet.token = sealToken
@@ -568,6 +585,9 @@ func (s *StakerHost) StartK3sAgent() error {
 	if s.stakingStatus.SealToken == "" {
 		return fmt.Errorf("K3s Agent 시작 불가: Seal 토큰이 생성되지 않음")
 	}
+
+	// 🔑 Kubelet에 Seal 토큰 설정
+	s.k3sAgent.kubelet.token = s.stakingStatus.SealToken
 
 	// 🔧 Kubelet 시작 - Pod을 실제로 실행하는 K3s 구성요소
 	if err := s.k3sAgent.kubelet.Start(); err != nil {
@@ -755,7 +775,9 @@ func (s *StakerHost) validateStakeAndSendHeartbeat() error {
 	}
 
 	// ✅ 성공: 마지막 검증 시각 업데이트
-	s.stakingStatus.LastValidation = time.Now().Unix()
+	currentTime := time.Now().Unix()
+	s.stakingStatus.LastValidation = currentTime
+	s.lastHeartbeat = currentTime
 	return nil
 }
 

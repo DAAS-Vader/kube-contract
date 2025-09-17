@@ -5,7 +5,7 @@
   "sui_rpc_endpoint": "https://fullnode.testnet.sui.io:443",
   "stake_amount": 1000000000,
   "contract_address": "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
-  "nautilus_endpoint": "http://127.0.0.1:6443",
+  "nautilus_endpoint": "http://127.0.0.1:8080",
   "container_runtime": "docker",
   "min_stake_amount": 1000000000
 }

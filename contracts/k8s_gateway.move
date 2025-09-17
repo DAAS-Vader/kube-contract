@@ -259,7 +259,15 @@ module k3s_daas::k8s_gateway {
         // Combine tx hash and timestamp for unique seal token
         let mut hash_bytes = vector::empty<u8>();
         vector::append(&mut hash_bytes, *tx_hash);
-        vector::append(&mut hash_bytes, timestamp.to_be_bytes());
+
+        // Convert timestamp to bytes manually
+        let mut timestamp_bytes = vector::empty<u8>();
+        let mut ts = timestamp;
+        while (ts > 0) {
+            vector::push_back(&mut timestamp_bytes, ((ts % 256) as u8));
+            ts = ts / 256;
+        };
+        vector::append(&mut hash_bytes, timestamp_bytes);
 
         // Convert to hex string for seal token
         let hex_chars = b"0123456789abcdef";

@@ -370,6 +370,9 @@ func (n *NautilusMaster) Start() error {
 	// Seal 토큰 기반 워커 노드 등록 엔드포인트
 	http.HandleFunc("/api/v1/register-worker", n.handleWorkerRegistration)
 
+	// 워커 노드 하트비트 엔드포인트
+	http.HandleFunc("/api/v1/nodes/heartbeat", n.handleWorkerHeartbeat)
+
 	n.logger.Info("TEE: Nautilus K3s Master started successfully")
 	return http.ListenAndServe(":8080", nil)
 }
@@ -467,6 +470,85 @@ func (n *NautilusMaster) getTEEVendor(teeType string) string {
 	default:
 		return "Simulation"
 	}
+}
+
+// handleWorkerHeartbeat processes heartbeat from worker nodes
+func (n *NautilusMaster) handleWorkerHeartbeat(w http.ResponseWriter, r *http.Request) {
+	// Seal 토큰 검증
+	sealToken := r.Header.Get("X-Seal-Token")
+	if sealToken == "" {
+		n.logger.Error("Missing Seal token in heartbeat request")
+		http.Error(w, "Missing Seal token", http.StatusUnauthorized)
+		return
+	}
+
+	// Seal 토큰 유효성 검증
+	if !n.sealTokenValidator.ValidateSealToken(sealToken) {
+		n.logger.Error("Invalid Seal token in heartbeat request")
+		http.Error(w, "Invalid Seal token", http.StatusUnauthorized)
+		return
+	}
+
+	// 하트비트 페이로드 파싱
+	var heartbeatPayload map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&heartbeatPayload); err != nil {
+		n.logger.Error("Failed to parse heartbeat payload", logrus.Fields{
+			"error": err.Error(),
+		})
+		http.Error(w, "Invalid heartbeat payload", http.StatusBadRequest)
+		return
+	}
+
+	// 노드 ID 추출
+	nodeID, ok := heartbeatPayload["node_id"].(string)
+	if !ok {
+		n.logger.Error("Missing node_id in heartbeat payload")
+		http.Error(w, "Missing node_id", http.StatusBadRequest)
+		return
+	}
+
+	n.logger.Info("Processing worker heartbeat", logrus.Fields{
+		"node_id":    nodeID,
+		"timestamp":  heartbeatPayload["timestamp"],
+		"seal_token": sealToken[:10] + "...",
+	})
+
+	// 워커 노드 정보 업데이트
+	workerInfo := map[string]interface{}{
+		"node_id":         nodeID,
+		"last_heartbeat":  heartbeatPayload["timestamp"],
+		"stake_status":    heartbeatPayload["stake_status"],
+		"stake_amount":    heartbeatPayload["stake_amount"],
+		"running_pods":    heartbeatPayload["running_pods"],
+		"resource_usage":  heartbeatPayload["resource_usage"],
+		"status":          "active",
+		"seal_token":      sealToken,
+	}
+
+	// TEE etcd에 워커 정보 저장
+	key := fmt.Sprintf("/workers/%s", nodeID)
+	data, _ := json.Marshal(workerInfo)
+	if err := n.etcdStore.Put(key, data); err != nil {
+		n.logger.Error("Failed to store worker info", logrus.Fields{
+			"error":   err.Error(),
+			"node_id": nodeID,
+		})
+		http.Error(w, "Failed to store worker info", http.StatusInternalServerError)
+		return
+	}
+
+	// 하트비트 응답
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":    "acknowledged",
+		"node_id":   nodeID,
+		"timestamp": time.Now().Unix(),
+		"message":   "Heartbeat received and processed",
+	})
+
+	n.logger.Info("Worker heartbeat processed successfully", logrus.Fields{
+		"node_id": nodeID,
+	})
 }
 
 // Seal 토큰 검증 구현

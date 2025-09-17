@@ -17,7 +17,10 @@
       "Bash(go get:*)",
       "Bash(./staker-host:*)",
       "Bash(grep:*)",
-      "Bash(timeout:*)"
+      "Bash(timeout:*)",
+      "Bash(curl:*)",
+      "Bash(MOCK_MODE=true timeout 10s ./k3s-daas-worker)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []
