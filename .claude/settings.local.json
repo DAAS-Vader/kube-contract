@@ -23,7 +23,9 @@
       "Bash(cat:*)",
       "Bash(go vet:*)",
       "Bash(bash:*)",
-      "Bash(./comprehensive_test.sh:*)"
+      "Bash(./comprehensive_test.sh:*)",
+      "Bash(MOCK_MODE=true timeout 10s ./nautilus-tee.exe --help)",
+      "Bash(go:*)"
     ],
     "deny": [],
     "ask": []

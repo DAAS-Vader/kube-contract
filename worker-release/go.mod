@@ -51,4 +51,4 @@ require (
 )
 
 // 로컬 K3s 패키지 참조
-replace github.com/k3s-io/k3s => ./pkg-reference
+replace github.com/k3s-io/k3s => ../k3s-daas/pkg-reference

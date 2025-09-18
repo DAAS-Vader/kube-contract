@@ -86,6 +86,7 @@ type TEEEtcdStore struct {
 	sealingKey    []byte // Platform-specific sealing key
 }
 
+// TEEEtcdStore 인스턴스에서 사용할 함수가 Get 이라는 뜻
 func (t *TEEEtcdStore) Get(key string) ([]byte, error) {
 	if encryptedVal, exists := t.data[key]; exists {
 		// Decrypt the stored value using TEE sealing
@@ -983,8 +984,10 @@ func (n *NautilusMaster) getSecurityLevel() int {
 func main() {
 	// Logger 초기화
 	logger := logrus.New()
+	// 로그 설정 Set
 	logger.SetLevel(logrus.InfoLevel)
 
+	// 로그 찍기
 	logger.Info("Starting Nautilus TEE K3s Master...")
 
 	// TEE 환경 확인
@@ -992,10 +995,12 @@ func main() {
 		logger.Warn("Running in simulation mode (not real TEE)")
 	}
 
+	// master Init 하고 logger 등록
 	master := &NautilusMaster{
 		logger: logger,
 	}
 
+	// 마스터 등록 실패시 Error
 	if err := master.Start(); err != nil {
 		logger.Fatalf("Failed to start Nautilus master: %v", err)
 	}
