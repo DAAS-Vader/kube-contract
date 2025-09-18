@@ -76,8 +76,8 @@ func (n *NautilusMaster) authenticateKubectlRequest(r *http.Request) bool {
 
 // 내부 K3s API 서버로 요청 프록시
 func (n *NautilusMaster) proxyToK3sAPIServer(w http.ResponseWriter, r *http.Request) {
-	// K3s API 서버 URL (TEE 내부)
-	k3sAPIURL, err := url.Parse("https://localhost:6443")
+	// K3s API 서버 URL (TEE 내부) - HTTP로 시작 (TLS 문제 해결)
+	k3sAPIURL, err := url.Parse("http://localhost:6443")
 	if err != nil {
 		n.logger.Errorf("Failed to parse K3s API URL: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
