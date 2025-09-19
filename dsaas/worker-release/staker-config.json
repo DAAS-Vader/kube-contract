@@ -1,0 +1,13 @@
+{
+  "node_id": "sui-hackathon-worker-1",
+  "sui_wallet_address": "0x1234567890abcdef1234567890abcdef12345678",
+  "sui_private_key": "demo-private-key-for-hackathon",
+  "sui_rpc_endpoint": "https://fullnode.testnet.sui.io:443",
+  "stake_amount": 1000000000,
+  "contract_address": "0x...your-deployed-contract-address",
+  "nautilus_endpoint": "http://localhost:8080",
+  "container_runtime": "containerd",
+  "min_stake_amount": 100000000,
+  "heartbeat_interval": 30,
+  "mock_mode": true
+}
