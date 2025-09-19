@@ -348,6 +348,33 @@ module k8s_interface::staking {
     public fun get_min_user_stake(): u64 { MIN_USER_STAKE }
     public fun get_min_admin_stake(): u64 { MIN_ADMIN_STAKE }
 
+    // === K8s Gateway 연동을 위한 Getter 함수들 ===
+
+    /// Get stake amount from StakeRecord (k8s_gateway.move에서 사용)
+    public fun get_stake_record_amount(stake_record: &StakeRecord): u64 {
+        stake_record.amount
+    }
+
+    /// Get node ID from StakeRecord (k8s_gateway.move에서 사용)
+    public fun get_stake_record_node_id(stake_record: &StakeRecord): String {
+        stake_record.node_id
+    }
+
+    /// Get staker address from StakeRecord (k8s_gateway.move에서 사용)
+    public fun get_stake_record_staker(stake_record: &StakeRecord): address {
+        stake_record.staker
+    }
+
+    /// Get stake type from StakeRecord (k8s_gateway.move에서 사용)
+    public fun get_stake_record_type(stake_record: &StakeRecord): String {
+        stake_record.stake_type
+    }
+
+    /// Get stake status from StakeRecord (k8s_gateway.move에서 사용)
+    public fun get_stake_record_status(stake_record: &StakeRecord): u8 {
+        stake_record.status
+    }
+
     /// Get total staked in pool (view function)
     public fun get_total_staked(pool: &StakingPool): u64 {
         pool.total_staked

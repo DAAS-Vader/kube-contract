@@ -6,7 +6,7 @@ module k3s_daas::k8s_gateway {
     use sui::event;
     use std::string::{Self, String};
     use std::vector;
-    use k8s_interface::staking::{StakingPool, StakeRecord};
+    use k8s_interface::staking::{StakingPool, StakeRecord, get_stake_record_amount, get_stake_record_node_id, get_stake_record_staker, get_stake_record_type};
 
     // Errors
     const E_INSUFFICIENT_STAKE: u64 = 1;
@@ -86,31 +86,29 @@ module k3s_daas::k8s_gateway {
     ) {
         let staker = tx_context::sender(ctx);
 
-        // 스테이킹 레코드 소유자 확인 (staking.move의 StakeRecord 구조 참조)
-        // Note: StakeRecord의 실제 필드명에 맞춰 수정 필요
-        // assert!(get_stake_staker(stake_record) == staker, E_UNAUTHORIZED_ACTION);
+        // 스테이킹 레코드 소유자 확인 (getter 함수 사용)
+        assert!(get_stake_record_staker(stake_record) == staker, E_UNAUTHORIZED_ACTION);
 
         // 워커 노드 스테이킹 확인
-        // assert!(get_stake_type(stake_record) == string::utf8(b"node"), E_UNAUTHORIZED_ACTION);
-
-        // 임시로 기본 검증만 수행 (TODO: staking.move와 완전 통합 후 수정)
-        let _temp_staker = staker; // 컴파일 오류 방지
+        assert!(get_stake_record_type(stake_record) == string::utf8(b"node"), E_UNAUTHORIZED_ACTION);
 
         // 스테이킹 양에 따른 권한 계산 (워커 노드용)
         let permissions = vector::empty<String>();
         vector::push_back(&mut permissions, string::utf8(b"nodes:write"));
         vector::push_back(&mut permissions, string::utf8(b"pods:write"));
 
-        // Nautilus TEE 할당 (스테이킹 양 기반)
-        let nautilus_endpoint = assign_nautilus_endpoint(stake_record.amount);
+        // Nautilus TEE 할당 (스테이킹 양 기반) - getter 함수 사용
+        let stake_amount = get_stake_record_amount(stake_record);
+        let node_id = get_stake_record_node_id(stake_record);
+        let nautilus_endpoint = assign_nautilus_endpoint(stake_amount);
 
         let seal_token = SealToken {
             id: object::new(ctx),
-            wallet_address: string::utf8(b"0x") + stake_record.node_id, // Convert node_id to wallet format
-            signature: generate_worker_signature(stake_record.node_id, ctx),
+            wallet_address: string::utf8(b"0x") + node_id, // Convert node_id to wallet format
+            signature: generate_worker_signature(node_id, ctx),
             challenge: generate_challenge(ctx),
             timestamp: tx_context::epoch(ctx),
-            stake_amount: stake_record.amount,
+            stake_amount,
             permissions,
             expires_at: tx_context::epoch(ctx) + 100, // 100 에폭 후 만료
             nautilus_endpoint,
@@ -119,11 +117,11 @@ module k3s_daas::k8s_gateway {
         // 토큰을 사용자에게 전송
         sui::transfer::public_transfer(seal_token, staker);
 
-        // Seal 토큰 생성 이벤트
+        // Seal 토큰 생성 이벤트 (getter 함수 사용)
         event::emit(SealTokenCreated {
             token_id: object::id(&seal_token),
             owner: staker,
-            node_id: stake_record.node_id,
+            node_id,
             nautilus_endpoint,
             expires_at: seal_token.expires_at,
         });
@@ -197,24 +195,33 @@ module k3s_daas::k8s_gateway {
         }
     }
 
-    // 스테이킹 양에 따른 권한 계산
+    // 스테이킹 양에 따른 권한 계산 (Go 시스템과 일치하도록 수정)
     fun calculate_permissions(stake_amount: u64, requested: vector<String>): vector<String> {
         let mut permissions = vector::empty<String>();
 
-        // 100 MIST: 기본 읽기 권한
-        if (stake_amount >= 100) {
+        // 500,000,000 MIST (0.5 SUI): 기본 읽기 권한
+        if (stake_amount >= 500000000) {
             vector::push_back(&mut permissions, string::utf8(b"pods:read"));
             vector::push_back(&mut permissions, string::utf8(b"services:read"));
+            vector::push_back(&mut permissions, string::utf8(b"configmaps:read"));
         }
 
-        // 1000 MIST: 워커 노드 권한
-        if (stake_amount >= 1000) {
+        // 1,000,000,000 MIST (1 SUI): 사용자/워커 노드 권한
+        if (stake_amount >= 1000000000) {
             vector::push_back(&mut permissions, string::utf8(b"nodes:write"));
             vector::push_back(&mut permissions, string::utf8(b"pods:write"));
+            vector::push_back(&mut permissions, string::utf8(b"services:write"));
         }
 
-        // 10000 MIST: 관리자 권한
-        if (stake_amount >= 10000) {
+        // 5,000,000,000 MIST (5 SUI): 운영자 권한
+        if (stake_amount >= 5000000000) {
+            vector::push_back(&mut permissions, string::utf8(b"deployments:write"));
+            vector::push_back(&mut permissions, string::utf8(b"secrets:read"));
+            vector::push_back(&mut permissions, string::utf8(b"namespaces:write"));
+        }
+
+        // 10,000,000,000 MIST (10 SUI): 관리자 권한
+        if (stake_amount >= 10000000000) {
             vector::push_back(&mut permissions, string::utf8(b"*:*")); // 모든 권한
         }
 

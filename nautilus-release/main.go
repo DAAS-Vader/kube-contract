@@ -170,34 +170,199 @@ type SuiEventListener struct {
 }
 
 func (s *SuiEventListener) SubscribeToK8sEvents() error {
-	// Sui 이벤트 구독 - 실제로는 Sui SDK 사용
-	log.Println("TEE: Subscribing to Sui K8s Gateway events...")
+	// Sui 이벤트 구독 - Move 컨트랙트와 연동
+	log.Println("TEE: Starting Sui event subscription...")
 
-	// WebSocket이나 HTTP long polling으로 이벤트 수신
-	http.HandleFunc("/api/v1/sui-events", s.handleSuiEvent)
+	// 실제 Sui 블록체인 이벤트 구독 시작
+	go s.subscribeToMoveContractEvents()
 
 	return nil
 }
 
-func (s *SuiEventListener) handleSuiEvent(w http.ResponseWriter, r *http.Request) {
-	var request K8sAPIRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
-		return
+// Move 컨트랙트 이벤트 구독 (실제 구현)
+func (s *SuiEventListener) subscribeToMoveContractEvents() {
+	log.Println("TEE: Starting real-time Sui event subscription...")
+
+	// Sui RPC WebSocket 연결 (실제 환경에서는 Sui SDK 사용)
+	suiRPCURL := "wss://fullnode.testnet.sui.io:443/websocket"
+
+	for {
+		err := s.connectAndListenToSui(suiRPCURL)
+		if err != nil {
+			log.Printf("TEE: Sui connection lost: %v, reconnecting in 5s...", err)
+			time.Sleep(5 * time.Second)
+			continue
+		}
 	}
-
-	log.Printf("TEE: Processing K8s API request: %s %s", request.Method, request.Path)
-
-	// 실제 K8s API 처리
-	response, err := s.nautilusMaster.ProcessK8sRequest(request)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
 }
+
+// Sui 블록체인 실시간 연결 및 이벤트 수신
+func (s *SuiEventListener) connectAndListenToSui(rpcURL string) error {
+	// Move 컨트랙트 이벤트 필터 설정
+	eventFilter := map[string]interface{}{
+		"Package": "k3s_daas", // Move 컨트랙트 패키지
+		"Module":  "k8s_gateway", // k8s_gateway.move 모듈
+		"EventType": "K8sAPIRequest", // K8sAPIRequest 이벤트 타입
+	}
+
+	log.Printf("TEE: Filtering events: %+v", eventFilter)
+
+	// 실제 환경에서는 WebSocket 구독 또는 HTTP 폴링
+	// 현재는 단순화된 구현으로 10초마다 체크
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		events, err := s.pollSuiEvents(eventFilter)
+		if err != nil {
+			log.Printf("TEE: Error polling Sui events: %v", err)
+			continue
+		}
+
+		for _, event := range events {
+			s.processContractEvent(event)
+		}
+	}
+
+	return nil
+}
+
+// Sui 이벤트 폴링 (실제 RPC 호출)
+func (s *SuiEventListener) pollSuiEvents(filter map[string]interface{}) ([]SuiEvent, error) {
+	// Sui RPC 요청 구성
+	rpcRequest := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "suix_queryEvents",
+		"params": []interface{}{
+			filter,
+			nil, // cursor (처음 조회 시 null)
+			10,  // limit
+			false, // descending_order
+		},
+	}
+
+	// RPC 호출
+	resp, err := s.callSuiRPC(rpcRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	// 응답 파싱
+	var events []SuiEvent
+	if result, ok := resp["result"].(map[string]interface{}); ok {
+		if data, ok := result["data"].([]interface{}); ok {
+			for _, eventData := range data {
+				event := s.parseSuiEvent(eventData)
+				if event != nil {
+					events = append(events, *event)
+				}
+			}
+		}
+	}
+
+	return events, nil
+}
+
+// Sui RPC 호출
+func (s *SuiEventListener) callSuiRPC(request map[string]interface{}) (map[string]interface{}, error) {
+	jsonData, err := json.Marshal(request)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := http.Post(
+		"https://fullnode.testnet.sui.io:443",
+		"application/json",
+		bytes.NewBuffer(jsonData),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result map[string]interface{}
+	err = json.NewDecoder(resp.Body).Decode(&result)
+	return result, err
+}
+
+// Sui 이벤트 구조체
+type SuiEvent struct {
+	Type      string                 `json:"type"`
+	Package   string                 `json:"package"`
+	Module    string                 `json:"module"`
+	ParsedJSON map[string]interface{} `json:"parsed_json"`
+	Timestamp uint64                 `json:"timestamp"`
+}
+
+// Sui 이벤트 파싱
+func (s *SuiEventListener) parseSuiEvent(eventData interface{}) *SuiEvent {
+	data, ok := eventData.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	event := &SuiEvent{}
+	if parsed, ok := data["parsedJson"].(map[string]interface{}); ok {
+		event.ParsedJSON = parsed
+	}
+	if timestampMs, ok := data["timestampMs"].(string); ok {
+		// 실제 타임스탬프 변환 (현재는 임시로 현재 시간 사용)
+		_ = timestampMs // TODO: 실제 파싱 구현 필요
+		event.Timestamp = uint64(time.Now().UnixMilli())
+	}
+
+	return event
+}
+
+// Move 컨트랙트 이벤트 처리
+func (s *SuiEventListener) processContractEvent(event SuiEvent) {
+	log.Printf("TEE: Processing contract event: %+v", event.ParsedJSON)
+
+	// K8sAPIRequest 이벤트인지 확인
+	if method, ok := event.ParsedJSON["method"].(string); ok {
+		// Move 컨트랙트의 K8sAPIRequest 이벤트를 Go 구조체로 변환
+		k8sRequest := K8sAPIRequest{
+			Method:       method,
+			Path:         getStringField(event.ParsedJSON, "path"),
+			Namespace:    getStringField(event.ParsedJSON, "namespace"),
+			ResourceType: getStringField(event.ParsedJSON, "resource_type"),
+			Sender:       getStringField(event.ParsedJSON, "sender"),
+			Timestamp:    event.Timestamp,
+		}
+
+		// Payload 디코딩 (Move에서 vector<u8>로 전송된 데이터)
+		if payloadData, ok := event.ParsedJSON["payload"].([]interface{}); ok {
+			payload := make([]byte, len(payloadData))
+			for i, v := range payloadData {
+				if val, ok := v.(float64); ok {
+					payload[i] = byte(val)
+				}
+			}
+			k8sRequest.Payload = payload
+		}
+
+		log.Printf("TEE: Processing K8s request from Move contract: %s %s", k8sRequest.Method, k8sRequest.Path)
+
+		// 실제 K8s API 처리
+		response, err := s.nautilusMaster.ProcessK8sRequest(k8sRequest)
+		if err != nil {
+			log.Printf("TEE: Error processing K8s request: %v", err)
+			return
+		}
+
+		log.Printf("TEE: K8s request processed successfully: %+v", response)
+	}
+}
+
+// Helper 함수: 이벤트에서 문자열 필드 추출
+func getStringField(data map[string]interface{}, field string) string {
+	if val, ok := data[field].(string); ok {
+		return val
+	}
+	return ""
+}
+
 
 // TEE에서 K8s API 요청 처리
 func (n *NautilusMaster) ProcessK8sRequest(req K8sAPIRequest) (interface{}, error) {
