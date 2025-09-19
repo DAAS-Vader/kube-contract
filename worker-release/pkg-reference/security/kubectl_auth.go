@@ -20,27 +20,10 @@ type KubectlAuthHandler struct {
 	tokenCache    map[string]*AuthCache
 }
 
-// AuthCache stores validated authentication results
-type AuthCache struct {
-	Username    string
-	Groups      []string
-	ValidUntil  time.Time
-	WalletAddr  string
-	StakeAmount uint64
-}
-
 // SuiClientInterface defines the interface for Sui blockchain interaction
 type SuiClientInterface interface {
 	ValidateStake(ctx context.Context, nodeID string, minStake uint64) (*StakeInfo, error)
 	ValidateSealToken(token *SealToken, minStake uint64) error
-}
-
-// StakeInfo represents staking information
-type StakeInfo struct {
-	NodeID      string
-	StakeAmount uint64
-	Status      string
-	ValidUntil  time.Time
 }
 
 // NewKubectlAuthHandler creates a new kubectl authentication handler
@@ -121,14 +104,6 @@ func (h *KubectlAuthHandler) AuthenticateKubectlRequest(req *http.Request) (*Aut
 	return result, nil
 }
 
-// AuthResult represents the result of authentication
-type AuthResult struct {
-	Authenticated bool
-	Username      string
-	Groups        []string
-	WalletAddress string
-	StakeAmount   uint64
-}
 
 // extractSealToken extracts Seal token from various sources in the request
 func (h *KubectlAuthHandler) extractSealToken(req *http.Request) (*SealToken, error) {
@@ -159,12 +134,12 @@ func (h *KubectlAuthHandler) extractSealToken(req *http.Request) (*SealToken, er
 func (h *KubectlAuthHandler) determineUserGroups(stakeAmount uint64) []string {
 	groups := []string{"system:authenticated"}
 
-	// Add groups based on stake tiers
-	if stakeAmount >= 10000000 { // 10M SUI
+	// Add groups based on stake tiers (MIST 단위, 1 SUI = 1,000,000,000 MIST)
+	if stakeAmount >= 10000000000 { // 10 SUI
 		groups = append(groups, "daas:admin", "daas:cluster-admin")
-	} else if stakeAmount >= 5000000 { // 5M SUI
+	} else if stakeAmount >= 5000000000 { // 5 SUI
 		groups = append(groups, "daas:operator", "daas:namespace-admin")
-	} else if stakeAmount >= 1000000 { // 1M SUI (minimum)
+	} else if stakeAmount >= 1000000000 { // 1 SUI (minimum)
 		groups = append(groups, "daas:user", "daas:developer")
 	}
 
