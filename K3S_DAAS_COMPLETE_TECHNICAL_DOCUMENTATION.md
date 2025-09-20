@@ -11,7 +11,7 @@ Users are consumers of Sui's Vercel serverless platform, and compute providers (
 - **Sui Native architecture** (Our purpose is to replace OCI/DockerHub with Walrus as a Sui-native Container Registry (not just a demo))
 - **Real-time event processing** (Sui events → masternode execution)
 - **Economic security model** (staking-based permission management)
-- **Hardware security** (TEE-based control plane)
+- **Hardware security** (TEE-based control plane (not just a demo))
 - **Event-driven automation** (blockchain events trigger K8s operations)
 
 ## System Architecture
