@@ -341,7 +341,7 @@ module k3s_daas::k8s_gateway {
         // 타임스탬프 추가
         vector::append(&mut id_bytes, b"_");
         let ts_str = u64_to_string(timestamp % 1000000); // 마지막 6자리
-        vector::append(&mut id_bytes, *string::bytes(&ts_str));
+        vector::append(&mut id_bytes, string::bytes(&ts_str));
 
         string::utf8(id_bytes)
     }
@@ -417,7 +417,7 @@ module k3s_daas::k8s_gateway {
         let timestamp = tx_context::epoch_timestamp_ms(ctx);
 
         let mut hash_bytes = vector::empty<u8>();
-        vector::append(&mut hash_bytes, *tx_hash);
+        vector::append(&mut hash_bytes, tx_hash);
 
         // Convert to hex string
         let hex_chars = b"0123456789abcdef";
