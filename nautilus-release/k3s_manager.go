@@ -14,20 +14,24 @@ import (
 
 // K3sManager - K3s 마스터 노드 관리
 type K3sManager struct {
-	logger     *logrus.Logger
-	dataDir    string
-	configFile string
-	process    *exec.Cmd
-	running    bool
+	logger           *logrus.Logger
+	dataDir          string
+	configFile       string
+	process          *exec.Cmd
+	running          bool
+	workerPool       *WorkerPool
+	sealTokenManager *SealTokenManager
 }
 
 // NewK3sManager - 새 K3s Manager 생성
 func NewK3sManager(logger *logrus.Logger) *K3sManager {
 	return &K3sManager{
-		logger:     logger,
-		dataDir:    "/var/lib/rancher/k3s",
-		configFile: "/etc/rancher/k3s/k3s.yaml",
-		running:    false,
+		logger:           logger,
+		dataDir:          "/var/lib/rancher/k3s",
+		configFile:       "/etc/rancher/k3s/k3s.yaml",
+		running:          false,
+		workerPool:       NewWorkerPool(logger),
+		sealTokenManager: NewSealTokenManager(logger),
 	}
 }
 

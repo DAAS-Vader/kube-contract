@@ -20,14 +20,18 @@ import (
 
 // SuiIntegration - 실제 Sui 블록체인 연동
 type SuiIntegration struct {
-	logger      *logrus.Logger
-	k3sMgr      *K3sManager
-	suiRPCURL   string
-	contractAddr string
-	privateKey  string
-	wsConn      *websocket.Conn
-	eventChan   chan *SuiContractEvent
-	stopChan    chan bool
+	logger        *logrus.Logger
+	k3sMgr        *K3sManager
+	workerPool    *WorkerPool
+	sealTokenMgr  *SealTokenManager
+	suiRPCURL     string
+	contractAddr  string
+	privateKey    string
+	wsConn        *websocket.Conn
+	eventChan     chan *SuiContractEvent
+	stopChan      chan bool
+	registryAddr  string
+	schedulerAddr string
 }
 
 // SuiContractEvent - Sui Contract에서 발생하는 이벤트
@@ -78,13 +82,17 @@ type K8sAPIResult struct {
 // NewSuiIntegration - 새 Sui Integration 생성
 func NewSuiIntegration(logger *logrus.Logger, k3sMgr *K3sManager) *SuiIntegration {
 	return &SuiIntegration{
-		logger:       logger,
-		k3sMgr:       k3sMgr,
-		suiRPCURL:    getEnvOrDefault("SUI_RPC_URL", "wss://fullnode.testnet.sui.io/websocket"),
-		contractAddr: getEnvOrDefault("CONTRACT_ADDRESS", ""),
-		privateKey:   getEnvOrDefault("PRIVATE_KEY", ""),
-		eventChan:    make(chan *SuiContractEvent, 100),
-		stopChan:     make(chan bool, 1),
+		logger:        logger,
+		k3sMgr:        k3sMgr,
+		workerPool:    k3sMgr.workerPool,
+		sealTokenMgr:  k3sMgr.sealTokenManager,
+		suiRPCURL:     getEnvOrDefault("SUI_RPC_URL", "https://fullnode.testnet.sui.io"),
+		contractAddr:  getEnvOrDefault("CONTRACT_PACKAGE_ID", "0x664356de3f1ce1df7d8039fb7f244dba3baec08025d791d15245876c76253bfc"),
+		registryAddr:  getEnvOrDefault("WORKER_REGISTRY_ID", "0xca7ddf00a634c97b126aac539f0d5e8b8df20ad4e88b5f7b5f18291fbe6f0981"),
+		schedulerAddr: getEnvOrDefault("K8S_SCHEDULER_ID", "0xf0f551c41b4056441a167a72ea14607f83aa6b73eb1383f69516ab0a893842a3"),
+		privateKey:    getEnvOrDefault("PRIVATE_KEY", ""),
+		eventChan:     make(chan *SuiContractEvent, 100),
+		stopChan:      make(chan bool, 1),
 	}
 }
 
@@ -151,18 +159,18 @@ func (s *SuiIntegration) pollSuiEvents(ctx context.Context) {
 
 // fetchLatestEvents - 최신 이벤트 가져오기
 func (s *SuiIntegration) fetchLatestEvents(rpcURL string, fromCheckpoint uint64) ([]*SuiContractEvent, uint64) {
-	// Sui queryEvents API 호출
+	// Sui queryEvents API 호출 - All 필터로 모든 이벤트 가져오기 (최근 이벤트부터)
 	requestBody := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      1,
 		"method":  "suix_queryEvents",
 		"params": []interface{}{
 			map[string]interface{}{
-				"MoveEventType": s.contractAddr + "::events::K8sAPIRequestEvent",
+				"All": []interface{}{},
 			},
 			nil,  // cursor
 			50,   // limit
-			true, // descending_order (최신 이벤트 먼저)
+			true, // descending_order (최신 이벤트부터)
 		},
 	}
 
@@ -266,11 +274,19 @@ func (s *SuiIntegration) parseEventFromAPI(eventMap map[string]interface{}) *Sui
 		event.EventData = parsedJson
 	}
 
-	// 우리가 관심 있는 이벤트인지 확인
-	if event.PackageID == s.contractAddr && (strings.Contains(event.Type, "K8sAPIRequestEvent") || strings.Contains(event.Type, "WorkerNodeEvent")) {
+	// 우리가 관심 있는 이벤트인지 확인 - 새 contract 이벤트 타입
+	if event.PackageID == s.contractAddr && (
+		strings.Contains(event.Type, "WorkerRegisteredEvent") ||
+		strings.Contains(event.Type, "K8sAPIRequestScheduledEvent") ||
+		strings.Contains(event.Type, "WorkerStatusChangedEvent") ||
+		strings.Contains(event.Type, "StakeDepositedEvent") ||
+		strings.Contains(event.Type, "WorkerAssignedEvent") ||
+		strings.Contains(event.Type, "K8sAPIResultEvent")) {
 		return event
 	}
 
+	// Debug: 로그로 필터링된 이벤트 확인
+	s.logger.Debugf("🔍 Filtered out event: %s (package: %s)", event.Type, event.PackageID)
 	return nil
 }
 
@@ -395,31 +411,151 @@ func (s *SuiIntegration) processEvent(event *SuiContractEvent) {
 	s.logger.Infof("🔧 Processing event: %s from %s", event.Type, event.Sender)
 
 	switch {
-	case strings.Contains(event.Type, "::events::K8sAPIRequestEvent"):
+	case strings.Contains(event.Type, "WorkerRegisteredEvent"):
+		s.handleWorkerRegisteredEvent(event)
+	case strings.Contains(event.Type, "K8sAPIRequestScheduledEvent"):
 		s.handleK8sAPIRequest(event)
-	case strings.Contains(event.Type, "::events::WorkerNodeEvent"):
-		s.handleWorkerNodeEvent(event)
+	case strings.Contains(event.Type, "WorkerStatusChangedEvent"):
+		s.handleWorkerStatusEvent(event)
 	default:
 		s.logger.Warnf("⚠️ Unknown event type: %s", event.Type)
 	}
 }
 
-// handleK8sAPIRequest - K8s API 요청 처리
-func (s *SuiIntegration) handleK8sAPIRequest(event *SuiContractEvent) {
-	// EventData를 K8sAPIRequest로 파싱
-	var request K8sAPIRequest
-	if data, err := json.Marshal(event.EventData); err == nil {
-		if err := json.Unmarshal(data, &request); err != nil {
-			s.logger.Errorf("❌ Failed to parse K8s API request: %v", err)
-			return
-		}
-	} else {
-		s.logger.Errorf("❌ Failed to marshal event data: %v", err)
+// handleWorkerRegisteredEvent - 워커 등록 이벤트 처리
+func (s *SuiIntegration) handleWorkerRegisteredEvent(event *SuiContractEvent) {
+	s.logger.Infof("👥 Processing worker registration event from contract")
+
+	// 이벤트 데이터 파싱
+	nodeID, ok := event.EventData["node_id"].(string)
+	if !ok {
+		s.logger.Errorf("❌ Failed to parse node_id from event")
 		return
 	}
 
-	s.logger.Infof("🎯 Executing K8s API: %s %s in namespace %s",
-		request.Method, request.Resource, request.Namespace)
+	owner, ok := event.EventData["owner"].(string)
+	if !ok {
+		s.logger.Errorf("❌ Failed to parse owner from event")
+		return
+	}
+
+	var stakeAmount uint64
+	if stakeAmountStr, ok := event.EventData["stake_amount"].(string); ok {
+		if parsed, err := strconv.ParseUint(stakeAmountStr, 10, 64); err == nil {
+			stakeAmount = parsed
+		} else {
+			s.logger.Errorf("❌ Failed to parse stake_amount string: %v", err)
+			return
+		}
+	} else if stakeAmountFloat, ok := event.EventData["stake_amount"].(float64); ok {
+		stakeAmount = uint64(stakeAmountFloat)
+	} else {
+		s.logger.Errorf("❌ Failed to parse stake_amount from event")
+		return
+	}
+
+	sealToken, ok := event.EventData["seal_token"].(string)
+	if !ok {
+		s.logger.Errorf("❌ Failed to parse seal_token from event")
+		return
+	}
+
+	// 워커 노드 객체 생성
+	worker := &WorkerNode{
+		NodeID:        nodeID,
+		SealToken:     sealToken,
+		Status:        "pending",
+		StakeAmount:   uint64(stakeAmount),
+		WorkerAddress: owner,
+	}
+
+	// 워커 풀에 추가
+	if err := s.workerPool.AddWorker(worker); err != nil {
+		if strings.Contains(err.Error(), "already exists") {
+			s.logger.Warnf("⚠️ Worker %s already exists in pool", nodeID)
+		} else {
+			s.logger.Errorf("❌ Failed to add worker to pool: %v", err)
+			return
+		}
+	} else {
+		s.logger.Infof("👥 Worker %s added to pool successfully", nodeID)
+	}
+
+	// Join token 생성 및 설정
+	if joinToken, err := s.k3sMgr.GetJoinToken(); err == nil {
+		if err := s.workerPool.SetWorkerJoinToken(nodeID, joinToken); err == nil {
+			s.logger.Infof("🎟️ Join token assigned to worker %s", nodeID)
+			// TODO: join token을 contract에 다시 전송
+		}
+	}
+
+	// 워커를 자동으로 활성화 (실제 환경에서는 검증 후)
+	if s.sealTokenMgr.ValidateSealToken(sealToken, nodeID) {
+		s.workerPool.UpdateWorkerStatus(nodeID, "active")
+		s.logger.Infof("✅ Worker %s activated and ready for scheduling", nodeID)
+	} else {
+		s.logger.Warnf("⚠️ Invalid seal token for worker %s", nodeID)
+	}
+}
+
+// handleK8sAPIRequest - K8s API 요청 스케줄링 이벤트 처리
+func (s *SuiIntegration) handleK8sAPIRequest(event *SuiContractEvent) {
+	s.logger.Infof("📝 Processing K8s API request scheduling event")
+
+	// 이벤트 데이터 파싱
+	requestID, ok := event.EventData["request_id"].(string)
+	if !ok {
+		s.logger.Errorf("❌ Failed to parse request_id from event")
+		return
+	}
+
+	method, ok := event.EventData["method"].(string)
+	if !ok {
+		s.logger.Errorf("❌ Failed to parse method from event")
+		return
+	}
+
+	resource, ok := event.EventData["resource"].(string)
+	if !ok {
+		s.logger.Errorf("❌ Failed to parse resource from event")
+		return
+	}
+
+	namespace, ok := event.EventData["namespace"].(string)
+	if !ok {
+		s.logger.Errorf("❌ Failed to parse namespace from event")
+		return
+	}
+
+	name := ""
+	if nameVal, exists := event.EventData["name"]; exists {
+		name, _ = nameVal.(string)
+	}
+
+	payload := ""
+	if payloadVal, exists := event.EventData["payload"]; exists {
+		payload, _ = payloadVal.(string)
+	}
+
+	assignedWorker, ok := event.EventData["assigned_worker"].(string)
+	if !ok {
+		s.logger.Errorf("❌ Failed to parse assigned_worker from event")
+		return
+	}
+
+	// K8s API 요청 객체 생성
+	request := &K8sAPIRequest{
+		RequestID:    requestID,
+		Method:       method,
+		Resource:     resource,
+		Namespace:    namespace,
+		Name:         name,
+		Payload:      payload,
+		Timestamp:    fmt.Sprintf("%d", event.Timestamp),
+	}
+
+	s.logger.Infof("🎯 Executing K8s API: %s %s in namespace %s (assigned to %s)",
+		request.Method, request.Resource, request.Namespace, assignedWorker)
 
 	// K3s가 실행 중인지 확인
 	if !s.isK3sActuallyRunning() {
@@ -429,36 +565,62 @@ func (s *SuiIntegration) handleK8sAPIRequest(event *SuiContractEvent) {
 	}
 
 	// 실제 K8s API 실행
-	result := s.executeK8sAPI(&request)
+	result := s.executeK8sAPI(request)
 
 	// 결과를 Contract에 저장
 	s.storeResultToContract(result)
+
+	// 워커 상태 업데이트
+	if result.Success {
+		s.workerPool.UpdateWorkerStatus(assignedWorker, "active")
+	} else {
+		s.logger.Warnf("⚠️ Request %s failed on worker %s", requestID, assignedWorker)
+	}
 }
 
-// handleWorkerNodeEvent - 워커 노드 이벤트 처리
-func (s *SuiIntegration) handleWorkerNodeEvent(event *SuiContractEvent) {
-	var request WorkerNodeRequest
-	if data, err := json.Marshal(event.EventData); err == nil {
-		if err := json.Unmarshal(data, &request); err != nil {
-			s.logger.Errorf("❌ Failed to parse worker node request: %v", err)
-			return
-		}
-	} else {
-		s.logger.Errorf("❌ Failed to marshal event data: %v", err)
+// handleWorkerStatusEvent - 워커 상태 변경 이벤트 처리
+func (s *SuiIntegration) handleWorkerStatusEvent(event *SuiContractEvent) {
+	s.logger.Infof("🔄 Processing worker status change event")
+
+	// 이벤트 데이터 파싱
+	nodeID, ok := event.EventData["node_id"].(string)
+	if !ok {
+		s.logger.Errorf("❌ Failed to parse node_id from event")
 		return
 	}
 
-	s.logger.Infof("👷 Processing worker node action: %s for %s", request.Action, request.NodeID)
+	newStatus, ok := event.EventData["new_status"].(string)
+	if !ok {
+		s.logger.Errorf("❌ Failed to parse new_status from event")
+		return
+	}
 
-	switch request.Action {
-	case "register":
-		s.handleWorkerRegistration(&request)
-	case "unregister":
-		s.handleWorkerUnregistration(&request)
-	case "heartbeat":
-		s.handleWorkerHeartbeat(&request)
-	default:
-		s.logger.Warnf("⚠️ Unknown worker action: %s", request.Action)
+	oldStatus := ""
+	if oldStatusVal, exists := event.EventData["old_status"]; exists {
+		oldStatus, _ = oldStatusVal.(string)
+	}
+
+	// 로컬 워커 풀 상태 업데이트
+	if err := s.workerPool.UpdateWorkerStatus(nodeID, newStatus); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			s.logger.Warnf("⚠️ Worker %s not found in local pool, may need to sync from contract", nodeID)
+			// TODO: 워커가 로컬에 없으면 contract에서 워커 정보를 가져와서 추가
+		} else {
+			s.logger.Errorf("❌ Failed to update worker status: %v", err)
+		}
+		return
+	}
+
+	s.logger.Infof("✅ Worker %s status updated: %s → %s", nodeID, oldStatus, newStatus)
+
+	// 상태에 따른 추가 작업
+	switch newStatus {
+	case "active":
+		s.logger.Infof("🟢 Worker %s is now available for scheduling", nodeID)
+	case "offline":
+		s.logger.Warnf("🔴 Worker %s went offline, removing from active pool", nodeID)
+	case "busy":
+		s.logger.Infof("🟡 Worker %s is busy processing request", nodeID)
 	}
 }
 
@@ -553,44 +715,6 @@ func (s *SuiIntegration) buildKubectlCommand(request *K8sAPIRequest) []string {
 	return args
 }
 
-// handleWorkerRegistration - 워커 노드 등록
-func (s *SuiIntegration) handleWorkerRegistration(request *WorkerNodeRequest) {
-	s.logger.Infof("📝 Registering worker node: %s", request.NodeID)
-
-	// Join token 생성
-	token, err := s.k3sMgr.GetJoinToken()
-	if err != nil {
-		s.logger.Errorf("❌ Failed to get join token: %v", err)
-		return
-	}
-
-	// 워커 노드에 join token 전달 (실제 구현에서는 Contract를 통해)
-	s.logger.Infof("🎟️ Generated join token for %s: %s...", request.NodeID, token[:20])
-
-	// TODO: join token을 Contract에 저장
-}
-
-// handleWorkerUnregistration - 워커 노드 해제
-func (s *SuiIntegration) handleWorkerUnregistration(request *WorkerNodeRequest) {
-	s.logger.Infof("📤 Unregistering worker node: %s", request.NodeID)
-
-	// K8s에서 노드 제거
-	args := []string{"delete", "node", request.NodeID}
-	cmd := exec.Command("kubectl", args...)
-	cmd.Env = append(os.Environ(), "KUBECONFIG=/etc/rancher/k3s/k3s.yaml")
-
-	if err := cmd.Run(); err != nil {
-		s.logger.Errorf("❌ Failed to delete node %s: %v", request.NodeID, err)
-	} else {
-		s.logger.Infof("✅ Successfully deleted node %s", request.NodeID)
-	}
-}
-
-// handleWorkerHeartbeat - 워커 노드 하트비트
-func (s *SuiIntegration) handleWorkerHeartbeat(request *WorkerNodeRequest) {
-	s.logger.Debugf("💓 Heartbeat from worker node: %s", request.NodeID)
-	// 하트비트 처리 로직 (상태 업데이트 등)
-}
 
 // storeResultToContract - 결과를 Sui Contract에 저장
 func (s *SuiIntegration) storeResultToContract(result *K8sAPIResult) {

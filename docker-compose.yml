@@ -12,9 +12,11 @@ services:
       - "6444:6443"    # K3s API Server
       - "8081:8080"    # HTTP API
     environment:
-      - CONTRACT_ADDRESS=0x7cec09084d43c2b8b9dd217b3bf69316b04e924e455b80b8813873e5c52cadd6
+      - CONTRACT_PACKAGE_ID=0xafe077eecacec8519dd738b73640501b40f35ba5885220c5dfa240885695ab38
+      - WORKER_REGISTRY_ID=0x430457c27683bfbaced45a3ce22a9f44519536d9070868954d5a01a1ae0a20a8
+      - K8S_SCHEDULER_ID=0x78abc95c4ced8ac1be420786d0d4be2b319acf13a4eb26797500d7d4111bed06
       - PRIVATE_KEY=suiprivkey1qqd74wmst3u3ar3kenngevpnayu0n4kvdklu9ses22p7pfev7x53yugm7aw
-      - SUI_RPC_URL=https://fullnode.testnet.sui.io:443
+      - SUI_RPC_URL=https://fullnode.testnet.sui.io
     privileged: true
     volumes:
       - /sys/fs/cgroup:/sys/fs/cgroup:rw
