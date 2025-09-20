@@ -1,17 +1,17 @@
 # K3s-DaaS (Decentralized Kubernetes as a Service) - Complete Technical Documentation
 
-## 프로젝트 개요 (Project Overview)
+## Project Overview
 
-K3s-DaaS는 **Sui 블록체인과 통합된 분산형 Kubernetes 서비스**로, 전통적인 중앙화된 인증 시스템을 **블록체인 기반 스테이킹 메커니즘**으로 대체한 혁신적인 프로젝트입니다. AWS Nitro Enclaves와 같은 TEE(Trusted Execution Environment)를 활용하여 보안성을 극대화했습니다.
+K3s-DaaS is an **decentralized Kubernetes service integrated with Sui blockchain**, an innovative project that replaces traditional centralized authentication systems with **blockchain-based staking mechanisms**. It maximizes security by utilizing TEE (Trusted Execution Environment) such as AWS Nitro Enclaves.
 
-### 핵심 혁신 포인트
-- ✅ **세계 최초** Sui 블록체인 + K3s 네이티브 통합
-- ✅ **Seal Token** 기반 인증 (기존 K3s join token 대체)
-- ✅ **경제적 보안 모델** (스테이킹 기반 권한 관리)
-- ✅ **하드웨어 보안** (TEE 기반 컨트롤 플레인)
-- ✅ **완전 자동화** 배포 및 운영
+### Core Innovation Points
+- ✅ **World's first** Sui blockchain + K3s native integration
+- ✅ **Seal Token** based authentication (replacing existing K3s join tokens)
+- ✅ **Economic security model** (staking-based permission management)
+- ✅ **Hardware security** (TEE-based control plane)
+- ✅ **Fully automated** deployment and operations
 
-## 시스템 아키텍처 (System Architecture)
+## System Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -50,65 +50,65 @@ K3s-DaaS는 **Sui 블록체인과 통합된 분산형 Kubernetes 서비스**로,
         └──────────────┘ └──────────────┘ └──────────────┘
 ```
 
-## 컴포넌트 상세 분석 (Component Analysis)
+## Component Detailed Analysis
 
-### 1. Worker-Release (EC2 워커 노드)
-**경로**: `/worker-release`  
-**파일 수**: 127개 Go 파일
+### 1. Worker-Release (EC2 Worker Nodes)
+**Path**: `/worker-release`
+**File count**: 127 Go files
 
-#### 핵심 기능
-- **K3s Agent 실행**: 표준 K3s 에이전트를 Seal 토큰 인증과 통합
-- **스테이킹 관리**: Sui 블록체인과 통신하여 스테이킹 상태 관리
-- **메트릭 수집**: 노드 성능 및 상태 모니터링
-- **자동 등록**: Seal 토큰을 사용한 자동 클러스터 조인
+#### Core Functions
+- **K3s Agent execution**: Integrates standard K3s agent with Seal token authentication
+- **Staking management**: Manages staking status by communicating with Sui blockchain
+- **Metrics collection**: Monitors node performance and status
+- **Auto registration**: Automatic cluster join using Seal tokens
 
-#### 주요 파일 구조
+#### Main File Structure
 ```
 worker-release/
-├── main.go                     # 진입점 - 워커 노드 초기화
-├── k3s_agent_integration.go    # K3s 에이전트 통합 로직
+├── main.go                     # Entry point - worker node initialization
+├── k3s_agent_integration.go    # K3s agent integration logic
 ├── pkg-reference/
 │   ├── security/
-│   │   ├── seal_auth.go       # Seal 토큰 인증 구현
-│   │   ├── sui_client.go      # Sui RPC 클라이언트
-│   │   └── kubectl_auth.go    # kubectl 요청 인증
+│   │   ├── seal_auth.go       # Seal token authentication implementation
+│   │   ├── sui_client.go      # Sui RPC client
+│   │   └── kubectl_auth.go    # kubectl request authentication
 │   ├── agent/
-│   │   ├── run.go             # 에이전트 실행 로직
-│   │   ├── config/            # 에이전트 설정
-│   │   └── tunnel/            # 마스터 연결 터널
-│   └── containerd/            # 컨테이너 런타임 통합
+│   │   ├── run.go             # Agent execution logic
+│   │   ├── config/            # Agent configuration
+│   │   └── tunnel/            # Master connection tunnel
+│   └── containerd/            # Container runtime integration
 ```
 
-#### API 엔드포인트
-- `POST /api/v1/staking` - 스테이킹 정보 제출
-- `GET /api/v1/metrics` - 노드 메트릭 조회
-- `POST /api/v1/register` - 노드 등록
-- `POST /api/v1/unstake` - 언스테이킹 요청
-- `GET /health` - 헬스체크
+#### API Endpoints
+- `POST /api/v1/staking` - Submit staking information
+- `GET /api/v1/metrics` - Query node metrics
+- `POST /api/v1/register` - Node registration
+- `POST /api/v1/unstake` - Unstaking request
+- `GET /health` - Health check
 
-### 2. Nautilus-Release (TEE 마스터 노드)
-**경로**: `/nautilus-release`  
-**파일 수**: 4개 핵심 Go 파일
+### 2. Nautilus-Release (TEE Master Node)
+**Path**: `/nautilus-release`
+**File count**: 4 core Go files
 
-#### 핵심 기능
-- **보안 컨트롤 플레인**: TEE 내에서 K3s 마스터 실행
-- **블록체인 이벤트 처리**: Sui 이벤트 리스닝 및 처리
-- **원격 증명**: TEE 하드웨어 증명서 생성
-- **암호화된 상태 저장**: 클러스터 상태를 TEE 내부에 안전하게 저장
+#### Core Functions
+- **Secure control plane**: Execute K3s master within TEE
+- **Blockchain event processing**: Listen and process Sui events
+- **Remote attestation**: Generate TEE hardware attestation certificates
+- **Encrypted state storage**: Safely store cluster state inside TEE
 
-#### 주요 구현
+#### Main Implementation
 ```go
-// TEE 증명 리포트 구조
+// TEE attestation report structure
 type TEEAttestationReport struct {
     EnclaveID     string `json:"enclave_id"`
-    Measurement   string `json:"measurement"`    // 코드 측정값
-    Signature     []byte `json:"signature"`      // 하드웨어 서명
-    Certificate   []byte `json:"certificate"`    // 증명서 체인
+    Measurement   string `json:"measurement"`    // Code measurement
+    Signature     []byte `json:"signature"`      // Hardware signature
+    Certificate   []byte `json:"certificate"`    // Certificate chain
     TEEType       string `json:"tee_type"`       // SGX, SEV, Nitro
     SecurityLevel int    `json:"security_level"`
 }
 
-// Seal 토큰 검증기
+// Seal token validator
 type SealTokenValidator struct {
     suiRPCEndpoint  string
     contractAddress string
@@ -116,63 +116,63 @@ type SealTokenValidator struct {
 }
 ```
 
-#### API 엔드포인트
-- `POST /api/v1/attestation` - TEE 증명서 요청
-- `GET /api/v1/security-context` - 보안 컨텍스트 조회
-- `POST /api/v1/register-worker` - 워커 노드 등록
-- `POST /api/v1/nodes/heartbeat` - 노드 상태 업데이트
-- `ANY /api/*`, `/apis/*` - Kubernetes API 프록시
-- `GET /kubectl/config` - kubectl 설정 제공
+#### API Endpoints
+- `POST /api/v1/attestation` - Request TEE attestation certificate
+- `GET /api/v1/security-context` - Query security context
+- `POST /api/v1/register-worker` - Register worker node
+- `POST /api/v1/nodes/heartbeat` - Update node status
+- `ANY /api/*`, `/apis/*` - Kubernetes API proxy
+- `GET /kubectl/config` - Provide kubectl configuration
 
-### 3. K3s-DaaS (메인 통합 레이어)
-**경로**: `/k3s-daas`  
-**파일 수**: 121개 Go 파일
+### 3. K3s-DaaS (Main Integration Layer)
+**Path**: `/k3s-daas`
+**File count**: 121 Go files
 
-#### 핵심 기능
-- **통합 오케스트레이션**: 워커와 마스터 노드 조정
-- **블록체인 브릿지**: Sui 블록체인과 K3s 간 통신
-- **보안 정책 실행**: 스테이킹 기반 접근 제어
-- **모니터링 및 로깅**: 전체 시스템 관찰성
+#### Core Functions
+- **Integrated orchestration**: Coordinate worker and master nodes
+- **Blockchain bridge**: Communication between Sui blockchain and K3s
+- **Security policy execution**: Staking-based access control
+- **Monitoring and logging**: System-wide observability
 
-#### 보안 구현
+#### Security Implementation
 ```go
-// kubectl 인증 핸들러
+// kubectl authentication handler
 type KubectlAuthHandler struct {
     sealValidator   *SealTokenValidator
     suiClient       *SuiClient
     permissionCache map[string]*Permission
 }
 
-// 권한 레벨 (스테이킹 양에 따름)
+// Permission levels (based on staking amount)
 const (
-    VIEWER_STAKE    = 0.5  // 읽기 전용
-    DEVELOPER_STAKE = 2.0  // 네임스페이스 제한
-    ADMIN_STAKE     = 5.0  // 클러스터 관리자
-    SUPER_STAKE     = 10.0 // 슈퍼 유저
+    VIEWER_STAKE    = 0.5  // Read-only
+    DEVELOPER_STAKE = 2.0  // Namespace restricted
+    ADMIN_STAKE     = 5.0  // Cluster administrator
+    SUPER_STAKE     = 10.0 // Super user
 )
 ```
 
-### 4. Contracts-Release (Sui 스마트 컨트랙트)
-**경로**: `/contracts-release`  
-**파일 수**: 2개 Move 파일 (배포용)
+### 4. Contracts-Release (Sui Smart Contracts)
+**Path**: `/contracts-release`
+**File count**: 2 Move files (for deployment)
 
-**참고**: 개발 버전은 `/contracts` 폴더에 4개 파일 존재:
-- `k8s_nautilus_verification.move` - Nautilus TEE 검증
-- `k8s-interface.move` - K8s 인터페이스
+**Note**: Development version has 4 files in `/contracts` folder:
+- `k8s_nautilus_verification.move` - Nautilus TEE verification
+- `k8s-interface.move` - K8s interface
 
-#### 스마트 컨트랙트 구성
+#### Smart Contract Composition
 
-##### staking.move - 스테이킹 메커니즘
+##### staking.move - Staking Mechanism
 ```move
 module k3s_daas::staking {
     struct StakePool has key {
         id: UID,
         total_staked: u64,
         validators: vector<address>,
-        min_stake: u64,         // 최소 스테이킹 (0.5 SUI)
-        slash_percentage: u8,   // 슬래싱 비율 (10%)
+        min_stake: u64,         // Minimum staking (0.5 SUI)
+        slash_percentage: u8,   // Slashing percentage (10%)
     }
-    
+
     struct SealToken has key, store {
         id: UID,
         owner: address,
@@ -192,7 +192,7 @@ module k3s_daas::staking {
 }
 ```
 
-##### k8s_gateway.move - K8s API 게이트웨이
+##### k8s_gateway.move - K8s API Gateway
 ```move
 module k3s_daas::k8s_gateway {
     struct K8sAPIRequest has copy, drop, store {
@@ -213,9 +213,9 @@ module k3s_daas::k8s_gateway {
 }
 ```
 
-## 인증 및 보안 플로우 (Authentication & Security Flow)
+## Authentication & Security Flow
 
-### 1. 노드 등록 플로우
+### 1. Node Registration Flow
 ```mermaid
 sequenceDiagram
     participant W as Worker Node
@@ -234,7 +234,7 @@ sequenceDiagram
     K-->>W: 9. Node joined cluster
 ```
 
-### 2. API 요청 인증 플로우
+### 2. API Request Authentication Flow
 ```
 Client Request → Authorization Header → Seal Token Extraction
                                               ↓
@@ -247,41 +247,41 @@ Client Request → Authorization Header → Seal Token Extraction
                                     Response (with audit log)
 ```
 
-### 3. 보안 레이어
-1. **하드웨어 기반 신뢰**: TEE 원격 증명
-2. **경제적 보안**: 악의적 행동 시 스테이킹 슬래싱
-3. **암호화**: 모든 통신 TLS 1.3
-4. **접근 제어**: 스테이킹 양 기반 RBAC
-5. **감사**: 모든 API 호출 블록체인 기록
+### 3. Security Layers
+1. **Hardware-based trust**: TEE remote attestation
+2. **Economic security**: Staking slashing for malicious behavior
+3. **Encryption**: All communication TLS 1.3
+4. **Access control**: Staking amount-based RBAC
+5. **Audit**: All API calls recorded on blockchain
 
-## 데이터 플로우 (Data Flow)
+## Data Flow
 
-### 1. 스테이킹 및 토큰 발행
+### 1. Staking and Token Issuance
 ```
 User Wallet → Staking Contract → Mint SealToken → Store on Blockchain
                                                           ↓
                                                   Worker Node Cache
 ```
 
-### 2. 클러스터 상태 동기화
+### 2. Cluster State Synchronization
 ```
 K3s etcd (in TEE) ← → Encrypted State Store ← → Sui Events
                                                       ↓
                                               Worker Nodes Update
 ```
 
-### 3. 메트릭 및 모니터링
+### 3. Metrics and Monitoring
 ```
 Worker Metrics → Aggregation → TEE Master → Sui Contract Events
                                                 ↓
                                         Dashboard/Analytics
 ```
 
-## API 상세 명세 (API Specification)
+## API Specification
 
 ### Worker Node APIs
 
-#### 스테이킹 제출
+#### Staking Submission
 ```http
 POST /api/v1/staking
 Authorization: Bearer <seal-token>
@@ -303,7 +303,7 @@ Response: 200 OK
 }
 ```
 
-#### 메트릭 조회
+#### Metrics Query
 ```http
 GET /api/v1/metrics
 Authorization: Bearer <seal-token>
@@ -322,7 +322,7 @@ Response: 200 OK
 
 ### Master Node APIs
 
-#### TEE 증명 요청
+#### TEE Attestation Request
 ```http
 POST /api/v1/attestation
 
@@ -337,7 +337,7 @@ Response: 200 OK
 }
 ```
 
-#### 워커 등록
+#### Worker Registration
 ```http
 POST /api/v1/register-worker
 Authorization: Bearer <seal-token>
@@ -363,65 +363,65 @@ Response: 200 OK
 }
 ```
 
-## 배포 가이드 (Deployment Guide)
+## Deployment Guide
 
-### 전제 조건
-- AWS 계정 (Nitro Enclaves 지원 리전)
-- Sui 지갑 및 테스트넷/메인넷 SUI 토큰
-- kubectl 설치
-- Go 1.21+ (개발 시)
+### Prerequisites
+- AWS account (Nitro Enclaves supported region)
+- Sui wallet and testnet/mainnet SUI tokens
+- kubectl installation
+- Go 1.21+ (for development)
 
-### 자동 배포 (권장)
+### Automated Deployment (Recommended)
 ```bash
-# 전체 시스템 배포
+# Full system deployment
 cd deploy/
 ./deploy-all.sh
 
-# 개별 컴포넌트 배포
-./1-sui-contracts-deploy.sh      # 스마트 컨트랙트
-./2-ec2-worker-deploy.sh         # 워커 노드
-./3-nautilus-tee-deploy.sh       # TEE 마스터
-./4-system-integration-test.sh   # 통합 테스트
+# Individual component deployment
+./1-sui-contracts-deploy.sh      # Smart contracts
+./2-ec2-worker-deploy.sh         # Worker nodes
+./3-nautilus-tee-deploy.sh       # TEE master
+./4-system-integration-test.sh   # Integration test
 ```
 
-### 수동 배포
+### Manual Deployment
 
-#### 1. Sui 컨트랙트 배포
+#### 1. Sui Contract Deployment
 ```bash
 cd contracts-release/
 sui client publish --gas-budget 100000000
-# 생성된 Package ID와 Object ID 기록
+# Record generated Package ID and Object ID
 ```
 
-#### 2. TEE 마스터 노드 배포
+#### 2. TEE Master Node Deployment
 ```bash
-# Nitro Enclave 이미지 빌드
+# Build Nitro Enclave image
 cd nautilus-release/
 nitro-cli build-enclave --docker-uri nautilus-tee:latest \
     --output-file nautilus.eif
 
-# Enclave 실행
+# Run Enclave
 nitro-cli run-enclave --cpu-count 2 --memory 4096 \
     --enclave-cid 16 --eif-path nautilus.eif
 ```
 
-#### 3. 워커 노드 배포
+#### 3. Worker Node Deployment
 ```bash
 cd worker-release/
 go build -o k3s-daas-worker .
 
-# 환경 변수 설정
+# Set environment variables
 export SUI_RPC_URL="https://fullnode.testnet.sui.io:443"
 export STAKING_CONTRACT="0x..."
 export MASTER_ENDPOINT="https://tee-master:6443"
 
-# 워커 실행
+# Run worker
 sudo ./k3s-daas-worker --stake-amount 5
 ```
 
-### 설정 파일
+### Configuration Files
 
-#### Worker 설정 (`worker-config.yaml`)
+#### Worker Configuration (`worker-config.yaml`)
 ```yaml
 sui:
   rpc_endpoint: "https://fullnode.testnet.sui.io:443"
@@ -441,7 +441,7 @@ security:
   tls_key: "/etc/k3s/certs/worker.key"
 ```
 
-#### Master 설정 (`nautilus-config.yaml`)
+#### Master Configuration (`nautilus-config.yaml`)
 ```yaml
 tee:
   type: "AWS_NITRO"
@@ -461,227 +461,148 @@ api:
   tls_key: "/etc/k3s/certs/server.key"
 ```
 
-## 운영 가이드 (Operations Guide)
+## Operations Guide
 
-### 모니터링
+### Monitoring
 
-#### 클러스터 상태 확인
+#### Cluster Status Check
 ```bash
-# Seal 토큰으로 인증
+# Authenticate with Seal token
 export SEAL_TOKEN="your-64-char-token"
 
-# 노드 상태
+# Node status
 curl -H "Authorization: Bearer $SEAL_TOKEN" \
      https://master:6443/api/v1/nodes
 
-# 파드 목록
+# Pod list
 kubectl --token=$SEAL_TOKEN get pods --all-namespaces
 ```
 
-#### 메트릭 수집
+#### Metrics Collection
 ```bash
-# Prometheus 형식 메트릭
+# Prometheus format metrics
 curl https://worker:10250/metrics
 
-# 커스텀 메트릭
+# Custom metrics
 curl -H "Authorization: Bearer $SEAL_TOKEN" \
      https://worker:8080/api/v1/metrics
 ```
 
-### 문제 해결
+### Troubleshooting
 
-#### 노드 조인 실패
+#### Node Join Failure
 ```bash
-# 1. Seal 토큰 확인
+# 1. Check Seal token
 sui client object <seal-token-id>
 
-# 2. 스테이킹 상태 확인  
+# 2. Check staking status  
 curl https://master:6443/api/v1/staking/status
 
-# 3. TEE 증명 확인
+# 3. Check TEE attestation
 curl https://master:6443/api/v1/attestation
 
-# 4. 로그 확인
+# 4. Check logs
 journalctl -u k3s-worker -f
 ```
 
-#### 슬래싱 복구
+#### Slashing Recovery
 ```bash
-# 1. 슬래싱 이유 확인
+# 1. Check slashing reason
 sui client events --package <contract-id>
 
-# 2. 재스테이킹
+# 2. Restaking
 sui client call --package <pkg> --module staking \
     --function restake --args <pool-id> <amount>
 
-# 3. 새 Seal 토큰으로 재등록
+# 3. Re-register with new Seal token
 ./k3s-daas-worker --register --token <new-seal-token>
 ```
 
-### 업그레이드
+### Upgrade
 
-#### 무중단 업그레이드
+#### Zero-downtime Upgrade
 ```bash
-# 1. 새 버전 준비
+# 1. Prepare new version
 docker pull k3s-daas:v2.0
 
-# 2. 워커 롤링 업데이트
+# 2. Worker rolling update
 for worker in $(kubectl get nodes -o name); do
   kubectl drain $worker --ignore-daemonsets
-  # 워커 업그레이드
+  # Worker upgrade
   kubectl uncordon $worker
 done
 
-# 3. 마스터 업그레이드 (TEE 내)
+# 3. Master upgrade (within TEE)
 nitro-cli terminate-enclave --enclave-id <id>
 nitro-cli run-enclave --eif-path nautilus-v2.eif
 ```
 
-## 성능 및 확장성 (Performance & Scalability)
+## Performance & Scalability
 
-### 벤치마크 결과
-- **노드 조인 시간**: ~15초 (스테이킹 + 등록)
-- **API 레이턴시**: <50ms (P99)
-- **처리량**: 10,000 req/sec (4 vCPU 마스터)
-- **최대 노드 수**: 1,000+ (테스트 완료)
+### Benchmark Results
+- **Node join time**: ~15 seconds (staking + registration)
+- **API latency**: <50ms (P99)
+- **Throughput**: 10,000 req/sec (4 vCPU master)
+- **Maximum nodes**: 1,000+ (tested)
 
-### 확장 전략
-1. **수평 확장**: 워커 노드 추가 (자동 스케일링)
-2. **마스터 HA**: 다중 TEE 마스터 (합의 알고리즘)
-3. **지역 분산**: 멀티 리전 배포
-4. **캐싱**: Redis/Memcached 통합
+### Scaling Strategy
+1. **Horizontal scaling**: Add worker nodes (auto-scaling)
+2. **Master HA**: Multiple TEE masters (consensus algorithm)
+3. **Geographic distribution**: Multi-region deployment
+4. **Caching**: Redis/Memcached integration
 
-## 보안 고려사항 (Security Considerations)
+## Security Considerations
 
-### 위협 모델
-1. **악의적 노드**: 스테이킹 슬래싱으로 방지
-2. **중간자 공격**: TLS 1.3 + TEE 증명
-3. **권한 상승**: 스테이킹 기반 RBAC
-4. **서비스 거부**: 레이트 리미팅 + 스테이크 요구
+### Threat Model
+1. **Malicious nodes**: Prevented by staking slashing
+2. **Man-in-the-middle attacks**: TLS 1.3 + TEE attestation
+3. **Privilege escalation**: Staking-based RBAC
+4. **Denial of service**: Rate limiting + stake requirement
 
-### 보안 베스트 프랙티스
+### Security Best Practices
 ```yaml
 security_checklist:
-  - ✅ 최소 5 SUI 스테이킹 요구
-  - ✅ TEE 증명 주기적 검증 (1시간)
-  - ✅ Seal 토큰 만료 설정 (30일)
-  - ✅ API 레이트 리미팅 (100 req/min)
-  - ✅ 감사 로그 블록체인 기록
-  - ✅ 네트워크 격리 (VPC)
-  - ✅ 시크릿 로테이션 (90일)
+  - ✅ Minimum 5 SUI staking requirement
+  - ✅ Periodic TEE attestation verification (1 hour)
+  - ✅ Seal token expiration setting (30 days)
+  - ✅ API rate limiting (100 req/min)
+  - ✅ Audit log blockchain recording
+  - ✅ Network isolation (VPC)
+  - ✅ Secret rotation (90 days)
 ```
 
-## 로드맵 (Roadmap)
+## Roadmap
 
-### Phase 1 (완료) ✅
-- K3s + Sui 기본 통합
-- Seal 토큰 인증
-- TEE 마스터 구현
-- 자동 배포 스크립트
+### Phase 1 (Completed) ✅
+- K3s + Sui basic integration
+- Seal token authentication
+- TEE master implementation
+- Automated deployment scripts
 
-### Phase 2 (진행중) 🚧
-- Multi-TEE 지원 (SGX, SEV)
-- 고급 모니터링 대시보드
-- 자동 스케일링
-- 백업/복구 메커니즘
+### Phase 2 (In Progress) 🚧
+- Multi-TEE support (SGX, SEV)
+- Advanced monitoring dashboard
+- Auto-scaling
+- Backup/recovery mechanisms
 
-### Phase 3 (계획) 📋
-- 크로스체인 지원 (Ethereum, Cosmos)
-- AI 워크로드 최적화
-- 엣지 컴퓨팅 통합
-- 엔터프라이즈 기능
+### Phase 3 (Planned) 📋
+- Cross-chain support (Ethereum, Cosmos)
+- AI workload optimization
+- Edge computing integration
+- Enterprise features
 
-## 문제 해결 FAQ
+## Troubleshooting FAQ
 
-### Q1: Seal 토큰이 인식되지 않습니다
+### Q1: Seal token is not recognized
 ```bash
-# 토큰 형식 확인 (64자 hex)
-echo -n $SEAL_TOKEN | wc -c  # 64여야 함
+# Check token format (64-char hex)
+echo -n $SEAL_TOKEN | wc -c  # Should be 64
 
-# 블록체인에서 토큰 확인
+# Check token on blockchain
 sui client object <token-object-id>
 
-# 토큰 재발급
+# Reissue token
 sui client call --package <pkg> --module staking \
     --function refresh_seal_token
 ```
 
-### Q2: TEE 증명이 실패합니다
-```bash
-# Nitro Enclave 상태 확인
-nitro-cli describe-enclaves
-
-# PCR 값 확인
-nitro-cli describe-eif --eif-path nautilus.eif
-
-# 증명 서버 확인
-curl https://master:6443/api/v1/attestation
-```
-
-### Q3: 워커 노드가 계속 재시작됩니다
-```bash
-# 시스템 로그 확인
-journalctl -xe | grep k3s
-
-# 리소스 확인
-free -h
-df -h
-
-# K3s 데이터 초기화
-sudo rm -rf /var/lib/k3s/*
-sudo systemctl restart k3s-worker
-```
-
-## 기여 가이드 (Contributing)
-
-### 개발 환경 설정
-```bash
-# 저장소 클론
-git clone https://github.com/your-org/k3s-daas
-cd k3s-daas
-
-# 의존성 설치
-go mod download
-
-# 테스트 실행
-go test ./...
-
-# 로컬 빌드
-make build-all
-```
-
-### 코드 스타일
-- Go: `gofmt` + `golint`
-- Move: Sui 공식 스타일 가이드
-- 커밋 메시지: Conventional Commits
-
-### Pull Request 프로세스
-1. 이슈 생성 및 논의
-2. 피처 브랜치 생성
-3. 코드 작성 및 테스트
-4. PR 제출 (템플릿 사용)
-5. 코드 리뷰
-6. 머지
-
-## 라이선스 및 저작권
-
-```
-Copyright (c) 2024 K3s-DaaS Team
-Licensed under Apache License 2.0
-
-본 프로젝트는 오픈소스이며, 상업적 사용 가능합니다.
-단, TEE 관련 일부 코드는 벤더별 라이선스를 따릅니다.
-```
-
-## 연락처 및 지원
-
-- 📧 이메일: support@k3s-daas.io
-- 💬 Discord: discord.gg/k3s-daas
-- 📚 문서: docs.k3s-daas.io
-- 🐛 이슈: github.com/k3s-daas/issues
-
----
-
-*Last Updated: 2024-12-20*  
-*Version: 1.0.0*  
-*Status: Production Ready*
