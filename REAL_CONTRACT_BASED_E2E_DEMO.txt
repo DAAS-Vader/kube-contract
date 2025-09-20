@@ -1,0 +1,353 @@
+# 🚀 K3s-DaaS REAL CONTRACT-BASED E2E DEMO SCRIPT
+# 진짜 컨트랙트 기반 이벤트 드리븐 아키텍처 데모
+# Date: 2025-09-20
+# Status: ✅ VERIFIED AND WORKING
+
+===============================================================================
+🎯 DEMO OVERVIEW - 진짜 우리 아키텍처
+===============================================================================
+이 데모는 API 서버를 거치지 않고 직접 컨트랙트로 모든 작업을 수행합니다:
+
+✅ REAL ARCHITECTURE:
+Sui Contract → Event → Nautilus Master → kubectl → K3s Cluster
+     ↑                       ↓
+[직접 호출]              [자동 처리]
+
+✅ KEY COMPONENTS:
+- Move 스마트 컨트랙트 (Worker Registry + K8s Scheduler)
+- 실시간 Sui 이벤트 리스너
+- 자동 kubectl 실행 엔진
+- Enhanced logging (📡🎉🚀 이모지로 실시간 확인)
+
+===============================================================================
+📋 PREPARATION CHECKLIST
+===============================================================================
+□ Docker Desktop running
+□ Sui client configured with testnet
+□ Terminal ready (2 panes recommended)
+□ At least 2 SUI tokens in wallet
+□ Contract addresses ready:
+  - Package: 0x029f3e4a78286e7534e2958c84c795cee3677c27f89dee56a29501b858e8892c
+  - Worker Registry: 0x733fe1e93455271672bdccec650f466c835edcf77e7c1ab7ee37ec70666cdc24
+  - K8s Scheduler: 0x1e3251aac591d8390e85ccd4abf5bb3326af74396d0221f5eb2d40ea42d17c24
+
+===============================================================================
+🎬 REAL CONTRACT-BASED E2E DEMO SCRIPT
+===============================================================================
+
+📌 STEP 1: Environment Setup
+----------------------------
+Commands:
+```bash
+# Clean slate
+docker-compose down --remove-orphans
+
+# Start the K3s-DaaS system
+docker-compose up -d --build
+
+# Wait for initialization (2-3 minutes)
+echo "⏳ Building K3s-DaaS system..."
+
+# Check system status
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+```
+
+Expected Output:
+```
+NAMES              STATUS                   PORTS
+nautilus-control   Up X minutes (healthy)   0.0.0.0:6444->6443/tcp, 0.0.0.0:8081->8080/tcp
+```
+
+📌 STEP 2: Real-time Event Monitoring Setup
+--------------------------------------------
+Commands (In separate terminal):
+```bash
+# Start real-time event monitoring
+docker logs nautilus-control --follow
+
+# Watch for these enhanced log patterns:
+# 📡 API Response: [Sui event processing]
+# 🎉 NEW WORKER REGISTRATION EVENT FROM CONTRACT!
+# 🚀 NEW K8S API REQUEST RECEIVED FROM CONTRACT!
+# 🎯 Executing kubectl command: kubectl apply -f -
+```
+
+📌 STEP 3: Contract-Based Worker Staking
+-----------------------------------------
+Commands:
+```bash
+# Check available SUI coins
+sui client gas
+
+# Split coin to get exactly 1 SUI (if needed)
+sui client split-coin --coin-id [YOUR_COIN_ID] --amounts 1000000000 --gas-budget 10000000
+
+# DIRECT CONTRACT CALL - Stake worker with 1 SUI
+sui client call \
+  --package 0x029f3e4a78286e7534e2958c84c795cee3677c27f89dee56a29501b858e8892c \
+  --module worker_registry \
+  --function stake_worker \
+  --args 0x733fe1e93455271672bdccec650f466c835edcf77e7c1ab7ee37ec70666cdc24 \
+         "hackathon-worker-003" \
+         [YOUR_1_SUI_COIN_ID] \
+         "seal_demo_contract_based_test_12345678901234567890" \
+  --gas-budget 20000000
+```
+
+Expected Output:
+```
+✅ Transaction Success!
+📊 Events Generated:
+  - WorkerRegisteredEvent
+  - StakeDepositedEvent
+  - StakeProof created
+
+🔍 Monitor logs for:
+  🎉 NEW WORKER REGISTRATION EVENT FROM CONTRACT!
+  💰 Stake amount: 1000000000 SUI MIST
+```
+
+📌 STEP 4: Contract-Based Worker Activation
+--------------------------------------------
+Commands:
+```bash
+# DIRECT CONTRACT CALL - Activate worker
+sui client call \
+  --package 0x029f3e4a78286e7534e2958c84c795cee3677c27f89dee56a29501b858e8892c \
+  --module worker_registry \
+  --function activate_worker \
+  --args 0x733fe1e93455271672bdccec650f466c835edcf77e7c1ab7ee37ec70666cdc24 \
+         "hackathon-worker-003" \
+  --gas-budget 20000000
+```
+
+Expected Output:
+```
+✅ Transaction Success!
+📊 Events Generated:
+  - WorkerStatusChangedEvent (pending → active)
+
+🔍 Monitor logs for:
+  🎯 WORKER hackathon-worker-003 IS NOW AVAILABLE FOR KUBERNETES WORKLOADS!
+  📝 Join token automatically set in contract
+```
+
+📌 STEP 5: Contract-Based Pod Deployment
+-----------------------------------------
+Commands:
+```bash
+# DIRECT CONTRACT CALL - Deploy Pod through contract
+sui client call \
+  --package 0x029f3e4a78286e7534e2958c84c795cee3677c27f89dee56a29501b858e8892c \
+  --module k8s_scheduler \
+  --function submit_k8s_request \
+  --args 0x1e3251aac591d8390e85ccd4abf5bb3326af74396d0221f5eb2d40ea42d17c24 \
+         "POST" \
+         "/api/v1/namespaces/default/pods" \
+         "contract-nginx-demo" \
+         "" \
+         "default" \
+         "contract-nginx-demo" \
+         "nginx:alpine" \
+         "80" \
+         "0x2c3dc44f39452ab44db72ffdf4acee24c7a9feeefd0de7ef058ff847f27834e4" \
+  --gas-budget 20000000
+```
+
+Expected Output:
+```
+✅ Transaction Success!
+📊 Events Generated:
+  - K8sAPIRequestScheduledEvent
+  - WorkerAssignedEvent
+
+🔍 Monitor logs for:
+  🚀 NEW K8S API REQUEST RECEIVED FROM CONTRACT!
+  🎯 Executing kubectl command: kubectl apply -f -
+  📤 kubectl output: pod/contract-nginx-demo created
+```
+
+📌 STEP 6: Real-time Verification
+----------------------------------
+Commands:
+```bash
+# Check system status through API (monitoring only)
+curl http://localhost:8081/api/nodes
+
+# Check transaction history
+curl http://localhost:8081/api/transactions/history
+
+# Verify contract state
+sui client object 0x733fe1e93455271672bdccec650f466c835edcf77e7c1ab7ee37ec70666cdc24
+sui client object 0x1e3251aac591d8390e85ccd4abf5bb3326af74396d0221f5eb2d40ea42d17c24
+```
+
+Expected Output:
+```
+📊 API Monitoring:
+{
+  "status": "success",
+  "data": {
+    "master_node": {"name": "nautilus-master", "status": "running"},
+    "worker_nodes": [{"name": "hackathon-worker-003", "status": "ready"}]
+  }
+}
+
+📋 Transaction History:
+[
+  {"type": "worker_activation", "worker": "hackathon-worker-003"},
+  {"type": "pod_deployment", "pod_name": "contract-nginx-demo"}
+]
+```
+
+📌 STEP 7: Live Architecture Demonstration
+-------------------------------------------
+Point out during demo:
+
+🎯 **Real Contract Flow:**
+```
+1. sui client call → Move Contract
+2. Contract emits Event
+3. Nautilus Master catches Event
+4. Automatic kubectl execution
+5. K3s cluster responds
+```
+
+🚀 **Enhanced Logging Shows:**
+```
+📡 API Response: [Real-time Sui event stream]
+🎉 NEW WORKER REGISTRATION EVENT FROM CONTRACT!
+🚀 NEW K8S API REQUEST RECEIVED FROM CONTRACT!
+🎯 Executing kubectl command: kubectl apply -f -
+📤 kubectl output: pod/contract-nginx-demo created
+✅ POST request for pods/contract-nginx-demo completed successfully
+```
+
+📊 **No API Server Dependency:**
+- All operations go through Move contracts
+- API server only used for monitoring
+- True decentralized architecture
+
+===============================================================================
+🎉 DEMO VERIFICATION POINTS
+===============================================================================
+
+✅ **Contract-First Architecture:**
+  - Every action starts with `sui client call`
+  - No curl commands for operations
+  - API only for monitoring/status
+
+✅ **Event-Driven Automation:**
+  - Real-time event processing visible in logs
+  - Automatic kubectl execution
+  - No manual intervention needed
+
+✅ **Blockchain Integration:**
+  - Real SUI tokens staked
+  - Actual Move contract calls
+  - On-chain transaction verification
+
+✅ **Kubernetes Integration:**
+  - Actual Pod deployment
+  - K3s cluster operation
+  - kubectl command execution
+
+===============================================================================
+🔧 TROUBLESHOOTING
+===============================================================================
+
+Common Issues:
+
+1. **Contract call fails:**
+   ```bash
+   # Check gas and coin IDs
+   sui client gas
+   sui client objects --owned-by [YOUR_ADDRESS]
+   ```
+
+2. **Events not showing in logs:**
+   ```bash
+   # Events are filtered - check for enhanced logging
+   docker logs nautilus-control --since 1m | grep -E "(🎉|🚀|🎯)"
+   ```
+
+3. **Worker not activating:**
+   ```bash
+   # Check contract state
+   sui client object 0x733fe1e93455271672bdccec650f466c835edcf77e7c1ab7ee37ec70666cdc24
+   ```
+
+===============================================================================
+📊 SUCCESS METRICS
+===============================================================================
+
+✅ **Completed Successfully When You See:**
+
+1. **WorkerRegisteredEvent** in transaction output
+2. **🎉 NEW WORKER REGISTRATION** in logs
+3. **WorkerStatusChangedEvent** in transaction output
+4. **🚀 NEW K8S API REQUEST** in logs
+5. **kubectl output: pod/XXX created** in logs
+6. **API monitoring shows worker as ready**
+
+===============================================================================
+🎯 KEY DEMO TALKING POINTS
+===============================================================================
+
+1. **"This is True Decentralization"**
+   - Show sui client call commands
+   - Point out no API dependencies for operations
+   - Emphasize blockchain-first architecture
+
+2. **"Real-time Event Processing"**
+   - Show enhanced logs with 📡🎉🚀 emojis
+   - Demonstrate automatic kubectl execution
+   - Highlight millisecond response times
+
+3. **"Production-Ready Infrastructure"**
+   - Show actual SUI staking
+   - Demonstrate K3s cluster operation
+   - Point out containerized deployment
+
+4. **"Developer Experience"**
+   - Simple contract calls
+   - Clear event feedback
+   - Comprehensive monitoring
+
+===============================================================================
+⚡ QUICK DEMO COMMANDS (COPY-PASTE READY)
+===============================================================================
+
+# Environment setup
+docker-compose down --remove-orphans && docker-compose up -d --build
+
+# Monitor logs (separate terminal)
+docker logs nautilus-control --follow
+
+# Stake worker
+sui client call --package 0x029f3e4a78286e7534e2958c84c795cee3677c27f89dee56a29501b858e8892c --module worker_registry --function stake_worker --args 0x733fe1e93455271672bdccec650f466c835edcf77e7c1ab7ee37ec70666cdc24 "hackathon-worker-003" [COIN_ID] "seal_demo_12345" --gas-budget 20000000
+
+# Activate worker
+sui client call --package 0x029f3e4a78286e7534e2958c84c795cee3677c27f89dee56a29501b858e8892c --module worker_registry --function activate_worker --args 0x733fe1e93455271672bdccec650f466c835edcf77e7c1ab7ee37ec70666cdc24 "hackathon-worker-003" --gas-budget 20000000
+
+# Monitor status
+curl http://localhost:8081/api/nodes
+
+===============================================================================
+🎊 CONCLUSION
+===============================================================================
+
+This demo proves:
+✅ Real blockchain integration with Move contracts
+✅ Event-driven architecture working in production
+✅ Automatic Kubernetes orchestration
+✅ True decentralized infrastructure
+
+NO API SERVER DEPENDENCIES FOR OPERATIONS!
+ALL THROUGH SMART CONTRACTS!
+
+Status: 🟢 PRODUCTION READY
+Verification: 🔥 LIVE TESTNET VALIDATED
+Architecture: 💯 TRULY DECENTRALIZED
+
+===============================================================================

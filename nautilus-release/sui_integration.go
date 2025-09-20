@@ -424,6 +424,7 @@ func (s *SuiIntegration) processEvent(event *SuiContractEvent) {
 
 // handleWorkerRegisteredEvent - 워커 등록 이벤트 처리
 func (s *SuiIntegration) handleWorkerRegisteredEvent(event *SuiContractEvent) {
+	s.logger.Infof("🎉 NEW WORKER REGISTRATION EVENT FROM CONTRACT!")
 	s.logger.Infof("👥 Processing worker registration event from contract")
 
 	// 이벤트 데이터 파싱
@@ -495,10 +496,13 @@ func (s *SuiIntegration) handleWorkerRegisteredEvent(event *SuiContractEvent) {
 		}
 	}
 
+	s.logger.Infof("💰 Stake amount: %d SUI MIST, Owner: %s", stakeAmount, owner)
+
 	// 워커를 자동으로 활성화 (실제 환경에서는 검증 후)
 	if s.sealTokenMgr.ValidateSealToken(sealToken, nodeID) {
 		s.workerPool.UpdateWorkerStatus(nodeID, "active")
 		s.logger.Infof("✅ Worker %s activated and ready for scheduling", nodeID)
+		s.logger.Infof("🎯 WORKER %s IS NOW AVAILABLE FOR KUBERNETES WORKLOADS!", nodeID)
 	} else {
 		s.logger.Warnf("⚠️ Invalid seal token for worker %s", nodeID)
 	}
@@ -560,8 +564,10 @@ func (s *SuiIntegration) handleK8sAPIRequest(event *SuiContractEvent) {
 		Timestamp:    fmt.Sprintf("%d", event.Timestamp),
 	}
 
+	s.logger.Infof("🚀 NEW K8S API REQUEST RECEIVED FROM CONTRACT!")
 	s.logger.Infof("🎯 Executing K8s API: %s %s in namespace %s (assigned to %s)",
 		request.Method, request.Resource, request.Namespace, assignedWorker)
+	s.logger.Infof("📦 Request ID: %s, Payload: %s", requestID, payload)
 
 	// K3s가 실행 중인지 확인
 	if !s.isK3sActuallyRunning() {
@@ -648,6 +654,10 @@ func (s *SuiIntegration) executeK8sAPI(request *K8sAPIRequest) *K8sAPIResult {
 	}
 
 	// kubectl 실행
+	s.logger.Infof("🎯 Executing kubectl command: kubectl %v", strings.Join(args, " "))
+	s.logger.Infof("📋 Request details - Method: %s, Resource: %s, Namespace: %s, Name: %s",
+		request.Method, request.Resource, request.Namespace, request.Name)
+
 	cmd := exec.Command("kubectl", args...)
 	cmd.Env = append(os.Environ(), "KUBECONFIG=/etc/rancher/k3s/k3s.yaml")
 
@@ -664,9 +674,15 @@ func (s *SuiIntegration) executeK8sAPI(request *K8sAPIRequest) *K8sAPIResult {
 		result.Success = false
 		result.Error = fmt.Sprintf("Command failed: %v, stderr: %s", err, stderr.String())
 		s.logger.Errorf("❌ kubectl command failed: %v", err)
+		s.logger.Errorf("❌ stderr: %s", stderr.String())
 	} else {
 		result.Success = true
 		s.logger.Infof("✅ kubectl command succeeded in %dms", result.ExecutionTime)
+		if result.Output != "" {
+			s.logger.Infof("📤 kubectl output: %s", result.Output)
+		}
+		s.logger.Infof("🎉 %s request for %s/%s completed successfully",
+			request.Method, request.Resource, request.Name)
 	}
 
 	return result
@@ -828,10 +844,10 @@ func (s *SuiIntegration) processMockEvent() {
 func (s *SuiIntegration) setJoinTokenToContract(nodeID, joinToken string) error {
 	// SUI 클라이언트 명령어 구성
 	cmd := exec.Command("sui", "client", "call",
-		"--package", s.contractPackageID,
+		"--package", s.contractAddr,
 		"--module", "worker_registry",
 		"--function", "set_join_token",
-		"--args", s.workerRegistryID, nodeID, joinToken,
+		"--args", s.registryAddr, nodeID, joinToken,
 		"--gas-budget", "10000000",
 	)
 
