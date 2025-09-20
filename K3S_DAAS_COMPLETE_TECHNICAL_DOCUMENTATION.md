@@ -6,10 +6,11 @@ K3s-DaaS is an **decentralized Kubernetes service integrated with Sui blockchain
 
 ### Core Innovation Points
 - ✅ **World's first** Sui blockchain + K3s native integration
-- ✅ **Seal Token** based authentication (replacing existing K3s join tokens)
+- ✅ **Contract-first architecture** (direct blockchain interactions, no API dependencies)
+- ✅ **Real-time event processing** (Sui events → kubectl execution)
 - ✅ **Economic security model** (staking-based permission management)
 - ✅ **Hardware security** (TEE-based control plane)
-- ✅ **Fully automated** deployment and operations
+- ✅ **Event-driven automation** (blockchain events trigger K8s operations)
 
 ## System Architecture
 
@@ -17,25 +18,27 @@ K3s-DaaS is an **decentralized Kubernetes service integrated with Sui blockchain
 ┌─────────────────────────────────────────────────────────────────┐
 │                         Sui Blockchain                          │
 │  ┌─────────────┐  ┌──────────────┐  ┌────────────────────┐    │
-│  │  Staking    │  │ K8s Gateway  │  │ K8s Nautilus      │    │
-│  │  Contract   │  │   Contract    │  │  Verification     │    │
+│  │   Worker    │  │ K8s Scheduler│  │     Events         │    │
+│  │  Registry   │  │   Contract   │  │   (Real-time)      │    │
+│  │ Contract    │  │              │  │                    │    │
 │  └──────┬──────┘  └───────┬──────┘  └─────────┬──────────┘    │
 └─────────┼──────────────────┼──────────────────┼────────────────┘
           │                  │                  │
-          │ Stake SUI        │ K8s API Events  │ Attestation
-          │ Get Seal Token   │                  │
+          │ Direct Contract  │ submit_k8s_      │ Event Stream
+          │ Calls            │ request          │ Processing
           ▼                  ▼                  ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Nautilus TEE (Master Node)                   │
+│                    Nautilus Control (Master Node)               │
 │  ┌────────────────────────────────────────────────────────┐    │
-│  │              AWS Nitro Enclave / Intel SGX              │    │
+│  │                Event Processing Engine                  │    │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌─────────────┐  │    │
-│  │  │ K3s Control  │  │ Seal Auth    │  │ TEE Attest  │  │    │
-│  │  │   Plane      │  │  Validator   │  │   Module    │  │    │
+│  │  │ Sui Event    │  │ kubectl Auto │  │ K3s Control │  │    │
+│  │  │  Listener    │  │  Executor    │  │   Plane     │  │    │
+│  │  │ 📡🎉🚀🎯     │  │              │  │             │  │    │
 │  │  └──────────────┘  └──────────────┘  └─────────────┘  │    │
 │  └────────────────────────────────────────────────────────┘    │
-│                           Port: 6443                            │
-└────────────────────────────┬────────────────────────────────────┘
+│               Port: 6443 (K8s) | 8080 (Monitoring)             │
+└────────────────────────────────┬────────────────────────────────┘
                              │
                  ┌───────────┼───────────┐
                  │           │           │
@@ -162,89 +165,117 @@ const (
 
 #### Smart Contract Composition
 
-##### staking.move - Staking Mechanism
+##### worker_registry.move - Worker Management
 ```move
-module k3s_daas::staking {
-    struct StakePool has key {
+module k3s_daas_contracts::worker_registry {
+    struct WorkerRegistry has key {
         id: UID,
+        workers: Table<String, Worker>,
         total_staked: u64,
-        validators: vector<address>,
-        min_stake: u64,         // Minimum staking (0.5 SUI)
-        slash_percentage: u8,   // Slashing percentage (10%)
+        min_stake_amount: u64,
+        admin: address,
     }
 
-    struct SealToken has key, store {
-        id: UID,
-        owner: address,
+    struct Worker has store {
+        node_id: String,
         stake_amount: u64,
-        node_id: vector<u8>,
+        status: u8, // 0=pending, 1=active, 2=slashed
+        join_token: Option<String>,
+        seal_token: String,
+        owner: address,
         created_at: u64,
-        expires_at: u64,
-        permissions: vector<u8>,
     }
-    
-    public entry fun stake_and_mint_seal(
-        pool: &mut StakePool,
+
+    public entry fun stake_and_register_worker(
+        registry: &mut WorkerRegistry,
         payment: Coin<SUI>,
-        node_id: vector<u8>,
+        node_id: String,
+        seal_token: String,
         ctx: &mut TxContext
-    )
+    ) {
+        // Event: WorkerRegisteredEvent, StakeDepositedEvent
+    }
+
+    public entry fun activate_worker(
+        registry: &mut WorkerRegistry,
+        node_id: String,
+        ctx: &mut TxContext
+    ) {
+        // Event: WorkerStatusChangedEvent
+    }
 }
 ```
 
-##### k8s_gateway.move - K8s API Gateway
+##### k8s_scheduler.move - K8s Request Scheduler
 ```move
-module k3s_daas::k8s_gateway {
-    struct K8sAPIRequest has copy, drop, store {
-        method: vector<u8>,
-        path: vector<u8>,
-        namespace: vector<u8>,
-        resource_type: vector<u8>,
-        payload: vector<u8>,
-        sender: address,
-        timestamp: u64,
+module k3s_daas_contracts::k8s_scheduler {
+    struct K8sScheduler has key {
+        id: UID,
+        pending_requests: Table<String, K8sAPIRequest>,
+        active_requests: Table<String, K8sAPIRequest>,
+        completed_requests: Table<String, K8sAPIRequest>,
+        worker_workloads: Table<String, u64>,
+        admin: address,
     }
-    
+
     public entry fun submit_k8s_request(
-        request: K8sAPIRequest,
-        seal_token: &SealToken,
+        scheduler: &mut K8sScheduler,
+        registry: &WorkerRegistry,
+        method: String,
+        path: String,
+        name: String,
+        labels: String,
+        namespace: String,
+        container_name: String,
+        image: String,
+        port: String,
+        requester: address,
         ctx: &mut TxContext
-    )
+    ) {
+        // Events: K8sAPIRequestScheduledEvent, WorkerAssignedEvent
+    }
+
+    // View functions for monitoring
+    public fun get_active_request_count(scheduler: &K8sScheduler): u64
+    public fun get_worker_workload(scheduler: &K8sScheduler, worker_id: String): u64
+    public fun get_request_status(scheduler: &K8sScheduler, request_id: String): u8
 }
 ```
 
 ## Authentication & Security Flow
 
-### 1. Node Registration Flow
+### 1. Contract-Based Worker Registration Flow
 ```mermaid
 sequenceDiagram
-    participant W as Worker Node
+    participant U as User/CLI
     participant B as Sui Blockchain
-    participant T as TEE Master
+    participant N as Nautilus Master
     participant K as K3s Control Plane
-    
-    W->>B: 1. Stake SUI (0.5-10 SUI)
-    B->>B: 2. Create SealToken NFT
-    B-->>W: 3. Return SealToken
-    W->>T: 4. Register with SealToken
-    T->>B: 5. Verify SealToken on-chain
-    B-->>T: 6. Validation result
-    T->>T: 7. Generate TEE Attestation
-    T->>K: 8. Register node in K3s
-    K-->>W: 9. Node joined cluster
+    participant W as Worker Container
+
+    U->>B: 1. sui client call stake_and_register_worker
+    B->>B: 2. Emit WorkerRegisteredEvent
+    B->>B: 3. Emit StakeDepositedEvent
+    N->>B: 4. Listen for events (📡)
+    N->>N: 5. Process registration (🎉)
+    U->>B: 6. sui client call activate_worker
+    B->>B: 7. Emit WorkerStatusChangedEvent
+    N->>N: 8. Set join token in contract
+    B->>B: 9. Emit JoinTokenSetEvent
+    U->>W: 10. docker run worker container
+    W->>K: 11. Join cluster with token
+    K-->>N: 12. Worker ready notification
 ```
 
-### 2. API Request Authentication Flow
+### 2. Contract-Based K8s Request Flow
 ```
-Client Request → Authorization Header → Seal Token Extraction
-                                              ↓
-                                    Blockchain Verification
-                                              ↓
-                                    Permission Check (Stake Level)
-                                              ↓
-                                    K3s API Execution
-                                              ↓
-                                    Response (with audit log)
+Contract Call → submit_k8s_request → K8sAPIRequestScheduledEvent
+     ↓                                         ↓
+ WorkerAssignedEvent ← Load Balancing ← Event Processing (📡)
+     ↓                                         ↓
+ kubectl Command ← Auto Execution (🎯) ← Nautilus Master (🚀)
+     ↓                                         ↓
+ Pod Created → kubectl output (📤) → Success Log (✅)
 ```
 
 ### 3. Security Layers
@@ -256,84 +287,146 @@ Client Request → Authorization Header → Seal Token Extraction
 
 ## Data Flow
 
-### 1. Staking and Token Issuance
+### 1. Contract-Based Worker Staking
 ```
-User Wallet → Staking Contract → Mint SealToken → Store on Blockchain
-                                                          ↓
-                                                  Worker Node Cache
-```
-
-### 2. Cluster State Synchronization
-```
-K3s etcd (in TEE) ← → Encrypted State Store ← → Sui Events
+sui client call → stake_and_register_worker → WorkerRegisteredEvent
                                                       ↓
-                                              Worker Nodes Update
+                        Real-time Event Stream → Nautilus Processing
+                                                      ↓
+                        Worker Status: pending → active → ready
 ```
 
-### 3. Metrics and Monitoring
+### 2. Event-Driven Pod Deployment
 ```
-Worker Metrics → Aggregation → TEE Master → Sui Contract Events
-                                                ↓
-                                        Dashboard/Analytics
+sui client call → submit_k8s_request → K8sAPIRequestScheduledEvent
+                                                      ↓
+                        Auto kubectl Execution → pod/xxx created
+                                                      ↓
+                        Contract State Update → Active Requests Count
+```
+
+### 3. Real-time Monitoring with Enhanced Logging
+```
+Sui Events → 📡 API Response → 🎉 Event Processing → 🚀 kubectl Execution
+                                                            ↓
+                        🎯 Command Output → 📤 Success → ✅ Completion
 ```
 
 ## API Specification
 
-### Worker Node APIs
+### Contract-Based APIs
 
-#### Staking Submission
+#### Worker Staking (Direct Contract Call)
+```bash
+# Stake and register worker with 1 SUI
+sui client call \
+  --package 0x029f3e4a78286e7534e2958c84c795cee3677c27f89dee56a29501b858e8892c \
+  --module worker_registry \
+  --function stake_and_register_worker \
+  --args 0x733fe1e93455271672bdccec650f466c835edcf77e7c1ab7ee37ec70666cdc24 \
+         [COIN_ID_1_SUI] \
+         "hackathon-worker-003" \
+         "seal_demo_contract_based_test_12345678901234567890" \
+  --gas-budget 20000000
+
+# Expected Events:
+# - WorkerRegisteredEvent
+# - StakeDepositedEvent
+# - StakeProof created
+```
+
+#### Worker Activation (Direct Contract Call)
+```bash
+# Activate registered worker
+sui client call \
+  --package 0x029f3e4a78286e7534e2958c84c795cee3677c27f89dee56a29501b858e8892c \
+  --module worker_registry \
+  --function activate_worker \
+  --args 0x733fe1e93455271672bdccec650f466c835edcf77e7c1ab7ee37ec70666cdc24 \
+         "hackathon-worker-003" \
+  --gas-budget 20000000
+
+# Expected Events:
+# - WorkerStatusChangedEvent (pending → active)
+# - JoinTokenSetEvent
+```
+
+#### Pod Deployment (Direct Contract Call)
+```bash
+# Deploy Pod through contract
+sui client call \
+  --package 0x029f3e4a78286e7534e2958c84c795cee3677c27f89dee56a29501b858e8892c \
+  --module k8s_scheduler \
+  --function submit_k8s_request \
+  --args 0x1e3251aac591d8390e85ccd4abf5bb3326af74396d0221f5eb2d40ea42d17c24 \
+         "POST" \
+         "/api/v1/namespaces/default/pods" \
+         "contract-nginx-demo" \
+         "" \
+         "default" \
+         "contract-nginx-demo" \
+         "nginx:alpine" \
+         "80" \
+         "0x2c3dc44f39452ab44db72ffdf4acee24c7a9feeefd0de7ef058ff847f27834e4" \
+  --gas-budget 20000000
+
+# Expected Events:
+# - K8sAPIRequestScheduledEvent
+# - WorkerAssignedEvent
+# Expected Logs:
+# 🚀 NEW K8S API REQUEST RECEIVED FROM CONTRACT!
+# 🎯 Executing kubectl command: kubectl apply -f -
+# 📤 kubectl output: pod/contract-nginx-demo created
+```
+
+#### Contract State Monitoring (View Functions)
+```bash
+# Check active request count
+sui client call \
+  --package 0x029f3e4a78286e7534e2958c84c795cee3677c27f89dee56a29501b858e8892c \
+  --module k8s_scheduler \
+  --function get_active_request_count \
+  --args 0x1e3251aac591d8390e85ccd4abf5bb3326af74396d0221f5eb2d40ea42d17c24
+
+# Check worker workload
+sui client call \
+  --package 0x029f3e4a78286e7534e2958c84c795cee3677c27f89dee56a29501b858e8892c \
+  --module k8s_scheduler \
+  --function get_worker_workload \
+  --args 0x1e3251aac591d8390e85ccd4abf5bb3326af74396d0221f5eb2d40ea42d17c24 \
+         "hackathon-worker-003"
+
+# Direct object inspection
+sui client object 0x1e3251aac591d8390e85ccd4abf5bb3326af74396d0221f5eb2d40ea42d17c24
+```
+
+### Monitoring APIs (Read-Only)
+
+#### System Status Monitoring
 ```http
-POST /api/v1/staking
-Authorization: Bearer <seal-token>
-Content-Type: application/json
-
-{
-  "node_id": "worker-001",
-  "stake_amount": "5000000000",  // 5 SUI in MIST
-  "duration": 2592000,            // 30 days in seconds
-  "wallet": "0x123..."
-}
+GET /api/nodes
 
 Response: 200 OK
 {
-  "success": true,
-  "seal_token": "64-char-hex-token",
-  "expires_at": 1234567890,
-  "permissions": ["cluster-admin"]
+  "status": "success",
+  "data": {
+    "master_node": {"name": "nautilus-master", "status": "running"},
+    "worker_nodes": [{"name": "hackathon-worker-003", "status": "ready"}]
+  }
 }
 ```
 
-#### Metrics Query
+#### Transaction History
 ```http
-GET /api/v1/metrics
-Authorization: Bearer <seal-token>
+GET /api/transactions/history
 
 Response: 200 OK
 {
-  "cpu_usage": 45.2,
-  "memory_usage": 67.8,
-  "pod_count": 25,
-  "container_count": 48,
-  "network_rx": 1024000,
-  "network_tx": 512000,
-  "timestamp": 1234567890
-}
-```
-
-### Master Node APIs
-
-#### TEE Attestation Request
-```http
-POST /api/v1/attestation
-
-Response: 200 OK
-{
-  "enclave_id": "i-1234567890abcdef0",
-  "measurement": "sha256:abcd1234...",
-  "signature": "base64-signature",
-  "certificate": "base64-cert-chain",
-  "tee_type": "AWS_NITRO",
-  "security_level": 5
+  "status": "success",
+  "data": [
+    {"type": "worker_activation", "worker": "hackathon-worker-003"},
+    {"type": "pod_deployment", "pod_name": "contract-nginx-demo"}
+  ]
 }
 ```
 
@@ -371,52 +464,79 @@ Response: 200 OK
 - kubectl installation
 - Go 1.21+ (for development)
 
-### Automated Deployment (Recommended)
+### Contract-Based Deployment (Recommended)
 ```bash
-# Full system deployment
-cd deploy/
-./deploy-all.sh
+# Step 1: Deploy master node infrastructure
+docker-compose up -d --build
 
-# Individual component deployment
-./1-sui-contracts-deploy.sh      # Smart contracts
-./2-ec2-worker-deploy.sh         # Worker nodes
-./3-nautilus-tee-deploy.sh       # TEE master
-./4-system-integration-test.sh   # Integration test
+# Step 2: Contract-based worker staking
+sui client call --package 0x029f... --module worker_registry \
+  --function stake_and_register_worker \
+  --args [REGISTRY_ID] [COIN_ID] "worker-001" "seal_token"
+
+# Step 3: Worker activation
+sui client call --package 0x029f... --module worker_registry \
+  --function activate_worker \
+  --args [REGISTRY_ID] "worker-001"
+
+# Step 4: Deploy worker container
+docker run -d --name worker-001 \
+  --network daasvader_k3s-daas-network \
+  -e MASTER_URL=https://nautilus-control:6443 \
+  daasVader/worker-release:latest
+
+# Step 5: Contract-based pod deployment
+sui client call --package 0x029f... --module k8s_scheduler \
+  --function submit_k8s_request \
+  --args [SCHEDULER_ID] "POST" "/api/v1/namespaces/default/pods" "nginx-demo" ...
 ```
 
 ### Manual Deployment
 
-#### 1. Sui Contract Deployment
+#### 1. Verified Contract Addresses (Testnet)
 ```bash
-cd contracts-release/
+# Already deployed and verified contracts:
+Contract Package ID: 0x029f3e4a78286e7534e2958c84c795cee3677c27f89dee56a29501b858e8892c
+Worker Registry ID:  0x733fe1e93455271672bdccec650f466c835edcf77e7c1ab7ee37ec70666cdc24
+K8s Scheduler ID:    0x1e3251aac591d8390e85ccd4abf5bb3326af74396d0221f5eb2d40ea42d17c24
+
+# To deploy new contracts (if needed):
+cd contracts-releases/
 sui client publish --gas-budget 100000000
-# Record generated Package ID and Object ID
 ```
 
-#### 2. TEE Master Node Deployment
+#### 2. Nautilus Master Node Deployment
 ```bash
-# Build Nitro Enclave image
-cd nautilus-release/
-nitro-cli build-enclave --docker-uri nautilus-tee:latest \
-    --output-file nautilus.eif
+# Docker-based deployment (simplified)
+cd /mnt/c/Users/ahwls/daasVader
+docker-compose up -d --build
 
-# Run Enclave
-nitro-cli run-enclave --cpu-count 2 --memory 4096 \
-    --enclave-cid 16 --eif-path nautilus.eif
+# Verify master node is running
+docker ps --format "table {{.Names}}\t{{.Status}}"
+curl http://localhost:8080/healthz
+
+# Monitor real-time event processing
+docker logs nautilus-control --follow
+# Look for: 📡 API Response, 🎉 NEW WORKER REGISTRATION, 🚀 NEW K8S API REQUEST
 ```
 
 #### 3. Worker Node Deployment
 ```bash
+# Build worker image (if not exists)
 cd worker-release/
-go build -o k3s-daas-worker .
+docker build -f Dockerfile.simple -t daasVader/worker-release:latest .
 
-# Set environment variables
-export SUI_RPC_URL="https://fullnode.testnet.sui.io:443"
-export STAKING_CONTRACT="0x..."
-export MASTER_ENDPOINT="https://tee-master:6443"
-
-# Run worker
-sudo ./k3s-daas-worker --stake-amount 5
+# Deploy worker with contract-based authentication
+docker run -d --name hackathon-worker-001 \
+  --network daasvader_k3s-daas-network \
+  -e MASTER_URL=https://nautilus-control:6443 \
+  -e NODE_ID=hackathon-worker-001 \
+  -e SEAL_TOKEN=seal_demo_contract_based_test_12345678901234567890 \
+  -e SUI_RPC_URL=https://fullnode.testnet.sui.io \
+  -e CONTRACT_PACKAGE_ID=0x029f3e4a78286e7534e2958c84c795cee3677c27f89dee56a29501b858e8892c \
+  -e WORKER_REGISTRY_ID=0x733fe1e93455271672bdccec650f466c835edcf77e7c1ab7ee37ec70666cdc24 \
+  --privileged \
+  daasVader/worker-release:latest
 ```
 
 ### Configuration Files
@@ -463,19 +583,35 @@ api:
 
 ## Operations Guide
 
-### Monitoring
+### Contract-Based Monitoring
 
-#### Cluster Status Check
+#### Real-time Event Monitoring
 ```bash
-# Authenticate with Seal token
-export SEAL_TOKEN="your-64-char-token"
+# Monitor enhanced logs with emoji indicators
+docker logs nautilus-control --follow
 
-# Node status
-curl -H "Authorization: Bearer $SEAL_TOKEN" \
-     https://master:6443/api/v1/nodes
+# Filter for specific events
+docker logs nautilus-control --since 10m | grep -E "(🎉|🚀|🎯|📡|📤|✅)"
 
-# Pod list
-kubectl --token=$SEAL_TOKEN get pods --all-namespaces
+# Expected log patterns:
+# 📡 API Response: [Sui event processing]
+# 🎉 NEW WORKER REGISTRATION EVENT FROM CONTRACT!
+# 🚀 NEW K8S API REQUEST RECEIVED FROM CONTRACT!
+# 🎯 Executing kubectl command: kubectl apply -f -
+# 📤 kubectl output: pod/contract-nginx-demo created
+# ✅ POST request for pods/contract-nginx-demo completed successfully
+```
+
+#### System Status via API (Monitoring Only)
+```bash
+# Node status (no authentication needed for monitoring)
+curl http://localhost:8081/api/nodes
+
+# Transaction history
+curl http://localhost:8081/api/transactions/history
+
+# Health check
+curl http://localhost:8080/healthz
 ```
 
 #### Metrics Collection
@@ -540,10 +676,12 @@ nitro-cli run-enclave --eif-path nautilus-v2.eif
 ## Performance & Scalability
 
 ### Benchmark Results
-- **Node join time**: ~15 seconds (staking + registration)
-- **API latency**: <50ms (P99)
-- **Throughput**: 10,000 req/sec (4 vCPU master)
-- **Maximum nodes**: 1,000+ (tested)
+- **Contract call latency**: ~2-3 seconds (Sui testnet)
+- **Event processing time**: <1 second (real-time)
+- **kubectl execution time**: ~1-2 seconds
+- **End-to-end deployment**: ~5-10 seconds (contract → pod running)
+- **Concurrent workers**: 10+ (tested with contract-based coordination)
+- **Active requests tracked**: 4+ simultaneous Pod deployments verified
 
 ### Scaling Strategy
 1. **Horizontal scaling**: Add worker nodes (auto-scaling)
@@ -574,16 +712,20 @@ security_checklist:
 ## Roadmap
 
 ### Phase 1 (Completed) ✅
-- K3s + Sui basic integration
-- Seal token authentication
-- TEE master implementation
-- Automated deployment scripts
+- K3s + Sui blockchain integration
+- Contract-first architecture implementation
+- Real-time event processing with enhanced logging
+- Worker registry and K8s scheduler contracts
+- Event-driven kubectl automation
+- Docker containerization and deployment
+- Verified E2E workflow (staking → activation → pod deployment)
 
 ### Phase 2 (In Progress) 🚧
-- Multi-TEE support (SGX, SEV)
-- Advanced monitoring dashboard
-- Auto-scaling
-- Backup/recovery mechanisms
+- Advanced contract state management
+- Multi-worker load balancing
+- Enhanced monitoring dashboard with real-time metrics
+- Auto-scaling based on contract workload data
+- Cross-chain bridge integrations
 
 ### Phase 3 (Planned) 📋
 - Cross-chain support (Ethereum, Cosmos)
