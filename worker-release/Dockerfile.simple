@@ -1,0 +1,14 @@
+# Simple K3s Worker Node
+FROM rancher/k3s:v1.28.2-k3s1
+
+# Worker startup script
+COPY start-worker-unix.sh /start-worker.sh
+RUN chmod +x /start-worker.sh
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD test -f /var/lib/rancher/k3s/agent/agent.log || exit 1
+
+# Override entrypoint and run our script with shell
+ENTRYPOINT []
+CMD ["/bin/sh", "/start-worker.sh"]

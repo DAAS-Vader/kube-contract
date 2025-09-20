@@ -1,107 +1,65 @@
-# K3s-DaaS 프로덕션 환경 Docker Compose
+# K8s-DaaS E2E Integration Test Environment
 version: '3.8'
 
 services:
-  # API Gateway - kubectl 요청의 진입점
-  api-gateway:
-    build:
-      context: ./api-proxy
-      dockerfile: Dockerfile.gateway
-    container_name: k3s-daas-gateway
-    ports:
-      - "8080:8080"
-    environment:
-      - SUI_RPC_URL=https://fullnode.testnet.sui.io:443
-      - CONTRACT_ADDRESS=0x0
-      - PRIVATE_KEY=
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/healthz"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    networks:
-      - k3s-network
-    restart: unless-stopped
-
-  # Event Listener - Sui 이벤트 처리
-  event-listener:
-    build:
-      context: ./api-proxy
-      dockerfile: Dockerfile.listener
-    container_name: k3s-daas-listener
-    ports:
-      - "10250:10250"
-    environment:
-      - SUI_RPC_URL=https://fullnode.testnet.sui.io:443
-      - CONTRACT_ADDRESS=0x0
-      - PRIVATE_KEY=
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:10250/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    networks:
-      - k3s-network
-    restart: unless-stopped
-
-  # Nautilus Control Plane - TEE 통합 K8s 마스터
+  # Nautilus Control - K8s Master with Real Sui Integration
   nautilus-control:
     build:
       context: ./nautilus-release
       dockerfile: Dockerfile
-    container_name: k3s-daas-nautilus
+    container_name: nautilus-control
     ports:
-      - "6443:6443"  # K8s API Server
-      - "8081:8080"  # Health Check
+      - "6444:6443"    # K3s API Server
+      - "8081:8080"    # HTTP API
     environment:
-      - NODE_NAME=nautilus-control
-      - CLUSTER_SECRET=k3s-daas-secret
-      - TEE_ENABLED=true
+      - CONTRACT_ADDRESS=0x7cec09084d43c2b8b9dd217b3bf69316b04e924e455b80b8813873e5c52cadd6
+      - PRIVATE_KEY=suiprivkey1qqd74wmst3u3ar3kenngevpnayu0n4kvdklu9ses22p7pfev7x53yugm7aw
+      - SUI_RPC_URL=https://fullnode.testnet.sui.io:443
+    privileged: true
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+      - nautilus-data:/var/lib/rancher/k3s
+      - nautilus-config:/etc/rancher/k3s
+    networks:
+      - k3s-daas-network
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
-    networks:
-      - k3s-network
-    restart: unless-stopped
-    depends_on:
-      - event-listener
 
-  # Worker Node - K8s 워커 노드
-  worker-node:
+  # K3s Worker Node - Receives commands from Nautilus Control
+  worker-node-1:
     build:
       context: ./worker-release
-      dockerfile: Dockerfile
-    container_name: k3s-daas-worker
-    ports:
-      - "10251:10250"  # Kubelet
+      dockerfile: Dockerfile.simple
+    container_name: worker-node-1
     environment:
-      - NODE_NAME=worker-node-1
-      - SERVER_URL=https://nautilus-control:6443
-      - TOKEN=k3s-daas-secret
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:10250/healthz"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    networks:
-      - k3s-network
-    restart: unless-stopped
+      - MASTER_URL=https://nautilus-control:6443
+      - NODE_TOKEN=${NODE_TOKEN:-waiting-for-master}
+      - SEAL_TOKEN=seal_token_worker_123
+      - NODE_ID=worker-node-001
     depends_on:
       - nautilus-control
+    networks:
+      - k3s-daas-network
+    restart: unless-stopped
+    volumes:
+      - worker1-data:/var/lib/rancher/k3s
+    privileged: true
+
+volumes:
+  nautilus-data:
+    driver: local
+  nautilus-config:
+    driver: local
+  worker1-data:
+    driver: local
 
 networks:
-  k3s-network:
+  k3s-daas-network:
     driver: bridge
     ipam:
       config:
         - subnet: 172.20.0.0/16
-
-volumes:
-  k3s-data:
-    driver: local

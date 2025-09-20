@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(sui client:*)",
-      "Read(//mnt/c/Users/ahwls/daasVader/**)"
+      "Read(//mnt/c/Users/ahwls/daasVader/**)",
+      "Bash(export PATH=$PATH:~/go/bin)",
+      "Bash(go build:*)"
     ],
     "deny": [],
     "ask": []
