@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(sui client:*)"
+      "Bash(sui client:*)",
+      "Read(//mnt/c/Users/ahwls/daasVader/**)"
     ],
     "deny": [],
     "ask": []

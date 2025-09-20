@@ -1,7 +1,7 @@
 // Real Seal Token Authentication with actual cryptographic signatures
 // This file provides production-ready Seal token generation and validation
 
-package security
+package main
 
 import (
 	"crypto/ed25519"

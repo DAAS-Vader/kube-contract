@@ -1,0 +1,51 @@
+# K3s-DaaS 최소 테스트 환경 (API 프록시만)
+version: '3.8'
+
+services:
+  # API Gateway - kubectl 요청의 진입점
+  api-gateway:
+    build:
+      context: ./api-proxy
+      dockerfile: Dockerfile.gateway
+    container_name: k3s-daas-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - SUI_RPC_URL=https://fullnode.testnet.sui.io:443
+      - CONTRACT_ADDRESS=0x0
+      - PRIVATE_KEY=
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - k3s-network
+    restart: unless-stopped
+
+  # Event Listener - Sui 이벤트 처리
+  event-listener:
+    build:
+      context: ./api-proxy
+      dockerfile: Dockerfile.listener
+    container_name: k3s-daas-listener
+    ports:
+      - "10250:10250"
+    environment:
+      - SUI_RPC_URL=https://fullnode.testnet.sui.io:443
+      - CONTRACT_ADDRESS=0x0
+      - PRIVATE_KEY=
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:10250/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - k3s-network
+    restart: unless-stopped
+
+networks:
+  k3s-network:
+    driver: bridge

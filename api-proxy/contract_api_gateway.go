@@ -41,22 +41,22 @@ type PendingResponse struct {
 
 // K8sResponse - Contract에서 받는 응답
 type K8sResponse struct {
-	StatusCode int                    `json:"status_code"`
-	Headers    map[string]string      `json:"headers"`
-	Body       json.RawMessage        `json:"body"`
-	ProcessedAt time.Time             `json:"processed_at"`
+	StatusCode  int               `json:"status_code"`
+	Headers     map[string]string `json:"headers"`
+	Body        json.RawMessage   `json:"body"`
+	ProcessedAt time.Time         `json:"processed_at"`
 }
 
 // KubectlRequest - kubectl 요청 구조체
 type KubectlRequest struct {
-	Method        string            `json:"method"`
-	Path          string            `json:"path"`
-	Namespace     string            `json:"namespace"`
-	ResourceType  string            `json:"resource_type"`
-	Payload       []byte            `json:"payload"`
-	SealToken     string            `json:"seal_token"`
-	Headers       map[string]string `json:"headers"`
-	UserAgent     string            `json:"user_agent"`
+	Method       string            `json:"method"`
+	Path         string            `json:"path"`
+	Namespace    string            `json:"namespace"`
+	ResourceType string            `json:"resource_type"`
+	Payload      []byte            `json:"payload"`
+	SealToken    string            `json:"seal_token"`
+	Headers      map[string]string `json:"headers"`
+	UserAgent    string            `json:"user_agent"`
 }
 
 // SuiTransaction - Sui 트랜잭션 구조체
@@ -193,11 +193,11 @@ func (g *ContractAPIGateway) callMoveContract(requestID string, req *KubectlRequ
 		"typeArguments":   []string{},
 		"arguments": []interface{}{
 			requestID,                    // request_id
-			req.SealToken,               // seal_token (object ID)
-			req.Method,                  // method
-			req.Path,                    // path
-			req.Namespace,               // namespace
-			req.ResourceType,            // resource_type
+			req.SealToken,                // seal_token (object ID)
+			req.Method,                   // method
+			req.Path,                     // path
+			req.Namespace,                // namespace
+			req.ResourceType,             // resource_type
 			g.bytesToVector(req.Payload), // payload as vector<u8>
 		},
 	}
@@ -351,9 +351,9 @@ func (g *ContractAPIGateway) queryContractResponse(requestID string) (*K8sRespon
 
 	// TODO: 실제 응답 데이터 파싱
 	return &K8sResponse{
-		StatusCode: 200,
-		Headers:    map[string]string{"Content-Type": "application/json"},
-		Body:       json.RawMessage(`{"items": []}`),
+		StatusCode:  200,
+		Headers:     map[string]string{"Content-Type": "application/json"},
+		Body:        json.RawMessage(`{"items": []}`),
 		ProcessedAt: time.Now(),
 	}, nil
 }
@@ -483,7 +483,7 @@ type SuiTransactionResult struct {
 	Result struct {
 		Digest  string                 `json:"digest"`
 		Effects map[string]interface{} `json:"effects"`
-		Events  []interface{}         `json:"events"`
+		Events  []interface{}          `json:"events"`
 	} `json:"result"`
 	Error interface{} `json:"error"`
 }

@@ -47,16 +47,16 @@ type ContractEvent struct {
 
 // EventData - K8s API 요청 이벤트 데이터
 type EventData struct {
-	RequestID    string   `json:"request_id"`
-	Method       string   `json:"method"`
-	Path         string   `json:"path"`
-	Namespace    string   `json:"namespace"`
-	ResourceType string   `json:"resource_type"`
-	Payload      []int    `json:"payload"` // vector<u8> from Move
-	SealToken    string   `json:"seal_token"`
-	Requester    string   `json:"requester"`
-	Priority     int      `json:"priority"`
-	Timestamp    uint64   `json:"timestamp"`
+	RequestID    string `json:"request_id"`
+	Method       string `json:"method"`
+	Path         string `json:"path"`
+	Namespace    string `json:"namespace"`
+	ResourceType string `json:"resource_type"`
+	Payload      []int  `json:"payload"` // vector<u8> from Move
+	SealToken    string `json:"seal_token"`
+	Requester    string `json:"requester"`
+	Priority     int    `json:"priority"`
+	Timestamp    uint64 `json:"timestamp"`
 }
 
 // K8sExecutionResult - K8s 실행 결과
@@ -474,8 +474,8 @@ func (n *NautilusEventListener) storeResponseToContract(requestID string, result
 	}
 
 	n.logger.WithFields(logrus.Fields{
-		"request_id":   requestID,
-		"status_code":  result.StatusCode,
+		"request_id":    requestID,
+		"status_code":   result.StatusCode,
 		"response_size": len(resp.Body()),
 	}).Info("✅ Response stored to contract")
 

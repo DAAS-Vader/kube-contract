@@ -1,7 +1,7 @@
 // Real Sui Client Implementation for K3s-DaaS
 // This file provides actual Sui blockchain integration
 
-package security
+package main
 
 import (
 	"bytes"

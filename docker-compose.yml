@@ -1,0 +1,107 @@
+# K3s-DaaS 프로덕션 환경 Docker Compose
+version: '3.8'
+
+services:
+  # API Gateway - kubectl 요청의 진입점
+  api-gateway:
+    build:
+      context: ./api-proxy
+      dockerfile: Dockerfile.gateway
+    container_name: k3s-daas-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - SUI_RPC_URL=https://fullnode.testnet.sui.io:443
+      - CONTRACT_ADDRESS=0x0
+      - PRIVATE_KEY=
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - k3s-network
+    restart: unless-stopped
+
+  # Event Listener - Sui 이벤트 처리
+  event-listener:
+    build:
+      context: ./api-proxy
+      dockerfile: Dockerfile.listener
+    container_name: k3s-daas-listener
+    ports:
+      - "10250:10250"
+    environment:
+      - SUI_RPC_URL=https://fullnode.testnet.sui.io:443
+      - CONTRACT_ADDRESS=0x0
+      - PRIVATE_KEY=
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:10250/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - k3s-network
+    restart: unless-stopped
+
+  # Nautilus Control Plane - TEE 통합 K8s 마스터
+  nautilus-control:
+    build:
+      context: ./nautilus-release
+      dockerfile: Dockerfile
+    container_name: k3s-daas-nautilus
+    ports:
+      - "6443:6443"  # K8s API Server
+      - "8081:8080"  # Health Check
+    environment:
+      - NODE_NAME=nautilus-control
+      - CLUSTER_SECRET=k3s-daas-secret
+      - TEE_ENABLED=true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - k3s-network
+    restart: unless-stopped
+    depends_on:
+      - event-listener
+
+  # Worker Node - K8s 워커 노드
+  worker-node:
+    build:
+      context: ./worker-release
+      dockerfile: Dockerfile
+    container_name: k3s-daas-worker
+    ports:
+      - "10251:10250"  # Kubelet
+    environment:
+      - NODE_NAME=worker-node-1
+      - SERVER_URL=https://nautilus-control:6443
+      - TOKEN=k3s-daas-secret
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:10250/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - k3s-network
+    restart: unless-stopped
+    depends_on:
+      - nautilus-control
+
+networks:
+  k3s-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  k3s-data:
+    driver: local
