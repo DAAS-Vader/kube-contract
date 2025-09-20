@@ -485,7 +485,13 @@ func (s *SuiIntegration) handleWorkerRegisteredEvent(event *SuiContractEvent) {
 	if joinToken, err := s.k3sMgr.GetJoinToken(); err == nil {
 		if err := s.workerPool.SetWorkerJoinToken(nodeID, joinToken); err == nil {
 			s.logger.Infof("🎟️ Join token assigned to worker %s", nodeID)
-			// TODO: join token을 contract에 다시 전송
+
+			// 조인 토큰을 컨트랙트에 저장
+			if err := s.setJoinTokenToContract(nodeID, joinToken); err != nil {
+				s.logger.Errorf("❌ Failed to store join token in contract: %v", err)
+			} else {
+				s.logger.Infof("✅ Join token stored in contract for worker %s", nodeID)
+			}
 		}
 	}
 
@@ -816,6 +822,31 @@ func (s *SuiIntegration) processMockEvent() {
 	} else {
 		s.logger.Errorf("❌ Error: %s", result.Error)
 	}
+}
+
+// setJoinTokenToContract - 조인 토큰을 컨트랙트에 저장
+func (s *SuiIntegration) setJoinTokenToContract(nodeID, joinToken string) error {
+	// SUI 클라이언트 명령어 구성
+	cmd := exec.Command("sui", "client", "call",
+		"--package", s.contractPackageID,
+		"--module", "worker_registry",
+		"--function", "set_join_token",
+		"--args", s.workerRegistryID, nodeID, joinToken,
+		"--gas-budget", "10000000",
+	)
+
+	s.logger.Debugf("🔗 Executing SUI command: %s", strings.Join(cmd.Args, " "))
+
+	// 명령 실행
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		s.logger.Errorf("❌ Failed to execute SUI command: %v", err)
+		s.logger.Errorf("❌ Command output: %s", string(output))
+		return fmt.Errorf("failed to set join token in contract: %v", err)
+	}
+
+	s.logger.Debugf("✅ SUI command output: %s", string(output))
+	return nil
 }
 
 // getEnvOrDefault - 환경변수 또는 기본값 반환

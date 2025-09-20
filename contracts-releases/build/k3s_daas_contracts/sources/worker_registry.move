@@ -35,6 +35,7 @@ module k8s_daas::worker_registry {
         stake_amount: u64,
         status: String,           // "pending", "active", "busy", "offline", "slashed"
         seal_token: String,
+        join_token: String,       // K3s 클러스터 참여용 조인 토큰
         registered_at: u64,
         last_heartbeat: u64,
         total_pods_served: u64,
@@ -83,6 +84,13 @@ module k8s_daas::worker_registry {
         node_id: String,
         owner: address,
         amount: u64,
+        timestamp: u64,
+    }
+
+    /// 조인 토큰 설정 이벤트
+    public struct JoinTokenSetEvent has copy, drop {
+        node_id: String,
+        join_token: String,
         timestamp: u64,
     }
 
@@ -138,6 +146,7 @@ module k8s_daas::worker_registry {
             stake_amount,
             status: string::utf8(b"pending"),
             seal_token,
+            join_token: string::utf8(b""), // 초기에는 빈 토큰
             registered_at: timestamp,
             last_heartbeat: timestamp,
             total_pods_served: 0,
@@ -300,6 +309,30 @@ module k8s_daas::worker_registry {
         worker.last_heartbeat = tx_context::epoch_timestamp_ms(ctx);
     }
 
+    /// 조인 토큰 설정 (마스터 노드에서 호출)
+    public fun set_join_token(
+        registry: &mut WorkerRegistry,
+        node_id: String,
+        join_token: String,
+        ctx: &mut TxContext
+    ) {
+        // 관리자 권한 확인 (실제로는 더 세밀한 권한 관리)
+        let sender = tx_context::sender(ctx);
+        assert!(sender == registry.admin, EUnauthorized);
+
+        assert!(table::contains(&registry.workers, node_id), EWorkerNotFound);
+
+        let worker = table::borrow_mut(&mut registry.workers, node_id);
+        worker.join_token = join_token;
+
+        // 이벤트 발생
+        event::emit(JoinTokenSetEvent {
+            node_id,
+            join_token,
+            timestamp: tx_context::epoch_timestamp_ms(ctx),
+        });
+    }
+
     // ==================== View Functions ====================
 
     /// 워커 정보 조회
@@ -352,5 +385,12 @@ module k8s_daas::worker_registry {
     public fun get_worker_owner(registry: &WorkerRegistry, node_id: String): address {
         let worker = table::borrow(&registry.workers, node_id);
         worker.owner
+    }
+
+    /// 워커 조인 토큰 조회
+    public fun get_worker_join_token(registry: &WorkerRegistry, node_id: String): String {
+        assert!(table::contains(&registry.workers, node_id), EWorkerNotFound);
+        let worker = table::borrow(&registry.workers, node_id);
+        worker.join_token
     }
 }
