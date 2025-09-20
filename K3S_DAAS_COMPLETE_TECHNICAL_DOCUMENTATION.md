@@ -26,7 +26,7 @@ Users are consumers of Sui's Vercel serverless platform, and compute providers (
 **File count**: 127 Go files
 
 #### Core Functions
-- **K3s Agent execution**: Integrates standard K3s agent with Staketoken authentication
+- **K3s Agent execution**: Integrates standard K3s agent with Stake token authentication
 - **Staking management**: Manages staking status by communicating with Sui blockchain
 - **Metrics collection**: Monitors node performance and status
 - **Auto registration**: Automatic cluster join using Stake tokens
