@@ -1,61 +1,27 @@
-# K3s-DaaS (Decentralized Kubernetes as a Service) - Complete Technical Documentation
+# DaasVader (Decentralized Kubernetes as a Service) - Complete Technical Documentation
 
 ## Project Overview
 
-K3s-DaaS is an **decentralized Kubernetes service integrated with Sui blockchain**, an innovative project that replaces traditional centralized authentication systems with **blockchain-based staking mechanisms**. It maximizes security by utilizing TEE (Trusted Execution Environment) such as AWS Nitro Enclaves.
+DaasVader is an **decentralized Kubernetes service integrated with Sui blockchain**, an innovative project that replaces traditional centralized authentication systems with **blockchain-based staking mechanisms**. 
+
+Users are consumers of Sui's Vercel serverless platform, and compute providers (stakers) are shared Kubernetes administrators. Using Sui Nautilus for master node and control plane operations with Move contracts, and utilizing Nautilus for secure communications and verification processes (master node      verification). The goal is to become Sui's Vercel.
 
 ### Core Innovation Points
-- ✅ **World's first** Sui blockchain + K3s native integration
-- ✅ **Contract-first architecture** (direct blockchain interactions, no API dependencies)
-- ✅ **Real-time event processing** (Sui events → kubectl execution)
-- ✅ **Economic security model** (staking-based permission management)
-- ✅ **Hardware security** (TEE-based control plane)
-- ✅ **Event-driven automation** (blockchain events trigger K8s operations)
+- **Sui blockchain + K8s native integration**
+- **Sui Native architecture** (Our purpose is to replace OCI/DockerHub with Walrus as a Sui-native Container Registry (not just a demo))
+- **Real-time event processing** (Sui events → kubectl execution)
+- **Economic security model** (staking-based permission management)
+- **Hardware security** (TEE-based control plane)
+- **Event-driven automation** (blockchain events trigger K8s operations)
 
 ## System Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Sui Blockchain                          │
-│  ┌─────────────┐  ┌──────────────┐  ┌────────────────────┐    │
-│  │   Worker    │  │ K8s Scheduler│  │     Events         │    │
-│  │  Registry   │  │   Contract   │  │   (Real-time)      │    │
-│  │ Contract    │  │              │  │                    │    │
-│  └──────┬──────┘  └───────┬──────┘  └─────────┬──────────┘    │
-└─────────┼──────────────────┼──────────────────┼────────────────┘
-          │                  │                  │
-          │ Direct Contract  │ submit_k8s_      │ Event Stream
-          │ Calls            │ request          │ Processing
-          ▼                  ▼                  ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Nautilus Control (Master Node)               │
-│  ┌────────────────────────────────────────────────────────┐    │
-│  │                Event Processing Engine                  │    │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌─────────────┐  │    │
-│  │  │ Sui Event    │  │ kubectl Auto │  │ K3s Control │  │    │
-│  │  │  Listener    │  │  Executor    │  │   Plane     │  │    │
-│  │  │ 📡🎉🚀🎯     │  │              │  │             │  │    │
-│  │  └──────────────┘  └──────────────┘  └─────────────┘  │    │
-│  └────────────────────────────────────────────────────────┘    │
-│               Port: 6443 (K8s) | 8080 (Monitoring)             │
-└────────────────────────────────┬────────────────────────────────┘
-                             │
-                 ┌───────────┼───────────┐
-                 │           │           │
-                 ▼           ▼           ▼
-        ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-        │ Worker Node  │ │ Worker Node  │ │ Worker Node  │
-        │   (EC2)      │ │   (EC2)      │ │   (EC2)      │
-        │              │ │              │ │              │
-        │ - K3s Agent  │ │ - K3s Agent  │ │ - K3s Agent  │
-        │ - Containerd │ │ - Containerd │ │ - Containerd │
-        │ - Seal Auth  │ │ - Seal Auth  │ │ - Seal Auth  │
-        └──────────────┘ └──────────────┘ └──────────────┘
-```
+<img width="1269" height="929" alt="image" src="https://github.com/user-attachments/assets/4fbb16c2-9bad-4116-ba72-ae5b350505c8" />
+
 
 ## Component Detailed Analysis
 
-### 1. Worker-Release (EC2 Worker Nodes)
+### 1. Worker-Release (Running a working node (providing computing power), it's a Golang file)
 **Path**: `/worker-release`
 **File count**: 127 Go files
 
@@ -70,7 +36,7 @@ K3s-DaaS is an **decentralized Kubernetes service integrated with Sui blockchain
 worker-release/
 ├── main.go                     # Entry point - worker node initialization
 ├── k3s_agent_integration.go    # K3s agent integration logic
-├── pkg-reference/
+├── pkg-reference/ # This is partial and modified k3s fork code (worker node)
 │   ├── security/
 │   │   ├── seal_auth.go       # Seal token authentication implementation
 │   │   ├── sui_client.go      # Sui RPC client
@@ -82,50 +48,42 @@ worker-release/
 │   └── containerd/            # Container runtime integration
 ```
 
-#### API Endpoints
-- `POST /api/v1/staking` - Submit staking information
-- `GET /api/v1/metrics` - Query node metrics
-- `POST /api/v1/register` - Node registration
-- `POST /api/v1/unstake` - Unstaking request
-- `GET /health` - Health check
-
-### 2. Nautilus-Release (TEE Master Node)
+### 2. Nautilus-Release: TEE Master Node (Note: This demo is not Sui-Nautilus - backend only)
 **Path**: `/nautilus-release`
 **File count**: 4 core Go files
 
 #### Core Functions
 - **Secure control plane**: Execute K3s master within TEE
-- **Blockchain event processing**: Listen and process Sui events
-- **Remote attestation**: Generate TEE hardware attestation certificates
-- **Encrypted state storage**: Safely store cluster state inside TEE
+- **Blockchain event processing**: Kubernetes integration that generates join tokens for worker nodes based on Sui events
+- **Auto kubectl execution**: Convert contract events to kubectl commands automatically
+- **Enhanced monitoring**: Provide real-time logging with emoji indicator
 
 #### Main Implementation
 ```go
-// TEE attestation report structure
-type TEEAttestationReport struct {
-    EnclaveID     string `json:"enclave_id"`
-    Measurement   string `json:"measurement"`    // Code measurement
-    Signature     []byte `json:"signature"`      // Hardware signature
-    Certificate   []byte `json:"certificate"`    // Certificate chain
-    TEEType       string `json:"tee_type"`       // SGX, SEV, Nitro
-    SecurityLevel int    `json:"security_level"`
+// Sui event processing structure
+type SuiEventProcessor struct {
+    logger      *logrus.Logger
+    rpcClient   *sui.Client
+    k3sManager  *K3sManager
+    eventStream chan *SuiEvent
 }
 
-// Seal token validator
-type SealTokenValidator struct {
-    suiRPCEndpoint  string
-    contractAddress string
-    validTokenCache map[string]*TokenInfo
+// K3s automation engine
+type K3sManager struct {
+    logger       *logrus.Logger
+    kubectlPath  string
+    configPath   string
+    isRunning    bool
 }
 ```
 
-#### API Endpoints
-- `POST /api/v1/attestation` - Request TEE attestation certificate
-- `GET /api/v1/security-context` - Query security context
-- `POST /api/v1/register-worker` - Register worker node
-- `POST /api/v1/nodes/heartbeat` - Update node status
-- `ANY /api/*`, `/apis/*` - Kubernetes API proxy
-- `GET /kubectl/config` - Provide kubectl configuration
+#### API Endpoints (Monitoring Only)
+- `GET /healthz` - Health check endpoint
+- `GET /readyz` - Ready status check
+- `GET /api/nodes` - Query registered nodes status
+- `GET /api/transactions/history` - Transaction history
+- `POST /api/contract/call` - Contract state queries
+- `ANY /api/*`, `/apis/*` - Kubernetes API proxy (port 6443)
 
 ### 3. K3s-DaaS (Main Integration Layer)
 **Path**: `/k3s-daas`
