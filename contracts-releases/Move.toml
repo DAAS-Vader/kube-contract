@@ -1,0 +1,8 @@
+[package]
+name = "k3s_daas_contracts"
+version = "1.0.0"
+
+[dependencies]
+
+[addresses]
+k3s_daas = "0x0"

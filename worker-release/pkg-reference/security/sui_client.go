@@ -24,7 +24,7 @@ func NewSuiClient(rpcURL string) *SuiClient {
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		mockMode: true, // 기본값은 mock 모드
+		mockMode: false, // 기본값은 실제 모드
 	}
 }
 
@@ -81,7 +81,7 @@ func (c *SuiClient) validateStakeReal(ctx context.Context, walletAddress string,
 			walletAddress,
 			map[string]interface{}{
 				"filter": map[string]interface{}{
-					"StructType": "0x3::staking_pool::StakedSui",
+					"StructType": "{{PACKAGE_ID}}::staking::StakeRecord",
 				},
 				"options": map[string]interface{}{
 					"showContent": true,

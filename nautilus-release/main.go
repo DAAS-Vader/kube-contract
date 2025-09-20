@@ -1,4 +1,4 @@
-// Nautilus TEE - 순수 K3s 마스터 노드 구현
+// Nautilus Release - 실제 배포용 K3s 마스터 노드 구현 (EC2에서 실행)
 package main
 
 import (
@@ -33,14 +33,16 @@ type K8sAPIRequest struct {
 	Timestamp    uint64 `json:"timestamp"`
 }
 
-// Nautilus TEE에서 실행되는 메인 K3s 마스터
+// Nautilus Release에서 실행되는 메인 K3s 마스터 (EC2)
 type NautilusMaster struct {
-	etcdStore          *TEEEtcdStore
+	etcdStore          *RegularEtcdStore  // TEE 대신 일반 etcd 사용
 	suiEventListener   *SuiEventListener
 	sealTokenValidator *SealTokenValidator
 	enhancedSealValidator *EnhancedSealTokenValidator
-	teeAttestationKey  []byte
-	enclaveMeasurement string
+	realSuiClient      *RealSuiClient     // 실제 Sui 클라이언트
+	realSealAuth       *RealSealAuthenticator // 실제 암호화 인증
+	ec2InstanceID      string             // EC2 인스턴스 ID
+	region             string             // AWS 리전
 	logger             *logrus.Logger
 }
 
@@ -59,31 +61,33 @@ type WorkerRegistrationRequest struct {
 	Timestamp uint64 `json:"timestamp"`
 }
 
-// TEE Attestation Report
-type TEEAttestationReport struct {
-	EnclaveID     string `json:"enclave_id"`
-	Measurement   string `json:"measurement"`
-	Signature     []byte `json:"signature"`
-	Certificate   []byte `json:"certificate"`
-	Timestamp     uint64 `json:"timestamp"`
-	TEEType       string `json:"tee_type"` // "SGX", "SEV", "TrustZone"
-	SecurityLevel int    `json:"security_level"`
+// EC2 Attestation Report (실제 배포용)
+type EC2AttestationReport struct {
+	InstanceID     string `json:"instance_id"`
+	InstanceType   string `json:"instance_type"`
+	Region         string `json:"region"`
+	Timestamp      uint64 `json:"timestamp"`
+	SecurityGroups []string `json:"security_groups"`
+	VPCID          string `json:"vpc_id"`
+	SubnetID       string `json:"subnet_id"`
+	PublicIP       string `json:"public_ip"`
+	PrivateIP      string `json:"private_ip"`
 }
 
-// TEE Security Context
-type TEESecurityContext struct {
-	SecretSealing   bool   `json:"secret_sealing"`
-	RemoteAttestation bool `json:"remote_attestation"`
-	MemoryEncryption bool `json:"memory_encryption"`
-	CodeIntegrity   bool   `json:"code_integrity"`
-	TEEVendor       string `json:"tee_vendor"`
+// EC2 Security Context (실제 배포용)
+type EC2SecurityContext struct {
+	InstanceProfile bool   `json:"instance_profile"`
+	SecurityGroups  bool   `json:"security_groups"`
+	VPCIsolation    bool   `json:"vpc_isolation"`
+	EncryptedEBS    bool   `json:"encrypted_ebs"`
+	CloudProvider   string `json:"cloud_provider"` // "AWS"
 }
 
-// TEE 내부 etcd 구현
-type TEEEtcdStore struct {
+// 일반 etcd 구현 (실제 배포용)
+type RegularEtcdStore struct {
 	data          map[string][]byte
-	encryptionKey []byte // TEE-sealed encryption key
-	sealingKey    []byte // Platform-specific sealing key
+	encryptionKey []byte // AES-256 암호화 키
+	filePath      string // 데이터 영속성을 위한 파일 경로
 }
 
 func (t *TEEEtcdStore) Get(key string) ([]byte, error) {
@@ -464,36 +468,54 @@ func (n *NautilusMaster) notifyControllerManager(req K8sAPIRequest) {
 
 // TEE 초기화 및 K3s 마스터 컴포넌트 시작
 func (n *NautilusMaster) Start() error {
-	n.logger.Info("TEE: Starting Nautilus K3s Master...")
+	n.logger.Info("EC2: Starting Nautilus K3s Master...")
 
-	// Initialize TEE environment and attestation
-	if err := n.initializeTEE(); err != nil {
-		return fmt.Errorf("failed to initialize TEE: %v", err)
+	// 1. EC2 환경 정보 수집
+	if err := n.initializeEC2(); err != nil {
+		return fmt.Errorf("failed to initialize EC2: %v", err)
 	}
 
-	// Generate attestation report
-	attestationReport, err := n.generateAttestationReport()
+	// 2. 실제 Sui 클라이언트 초기화
+	suiRPCEndpoint := os.Getenv("SUI_RPC_URL")
+	if suiRPCEndpoint == "" {
+		suiRPCEndpoint = "https://fullnode.testnet.sui.io:443"
+	}
+	
+	packageID := os.Getenv("PACKAGE_ID")
+	if packageID == "" {
+		packageID = os.Getenv("CONTRACT_ADDRESS")
+	}
+	
+	stakingPoolID := os.Getenv("STAKING_POOL_ID")
+	if stakingPoolID == "" {
+		stakingPoolID = packageID
+	}
+	
+	n.realSuiClient = NewRealSuiClient(suiRPCEndpoint, packageID, stakingPoolID, n.logger)
+
+	// 3. 실제 Seal 인증기 초기화
+	privateKeyHex := os.Getenv("SEAL_PRIVATE_KEY")
+	realSealAuth, err := NewRealSealAuthenticator(privateKeyHex, n.logger, n.realSuiClient)
 	if err != nil {
-		n.logger.Warn("Failed to generate attestation report", logrus.Fields{
-			"error": err.Error(),
-		})
-	} else {
-		n.logger.Info("TEE attestation report generated", logrus.Fields{
-			"enclave_id": attestationReport.EnclaveID,
-			"tee_type":   attestationReport.TEEType,
-		})
+		return fmt.Errorf("failed to initialize real seal authenticator: %v", err)
 	}
+	n.realSealAuth = realSealAuth
 
-	// TEE 내부 etcd 초기화 with encryption
-	encryptionKey, err := n.generateSealedKey()
+	// 4. 일반 etcd 초기화 (TEE 대신)
+	encryptionKey, err := n.generateEncryptionKey()
 	if err != nil {
-		return fmt.Errorf("failed to generate sealed key: %v", err)
+		return fmt.Errorf("failed to generate encryption key: %v", err)
 	}
 
-	n.etcdStore = &TEEEtcdStore{
+	n.etcdStore = &RegularEtcdStore{
 		data:          make(map[string][]byte),
 		encryptionKey: encryptionKey,
-		sealingKey:    n.teeAttestationKey,
+		filePath:      "/var/lib/k3s-daas/etcd-data.json",
+	}
+
+	// 데이터 로드
+	if err := n.etcdStore.loadFromFile(); err != nil {
+		n.logger.WithError(err).Warn("Failed to load existing etcd data, starting fresh")
 	}
 
 	// Enhanced Seal 토큰 검증기 초기화

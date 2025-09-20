@@ -17,8 +17,8 @@ K3s-DaaS는 **Sui 블록체인과 통합된 분산형 Kubernetes 서비스**로,
 ┌─────────────────────────────────────────────────────────────────┐
 │                         Sui Blockchain                          │
 │  ┌─────────────┐  ┌──────────────┐  ┌────────────────────┐    │
-│  │  Staking    │  │ K8s Gateway  │  │ Nautilus Contract  │    │
-│  │  Contract   │  │   Contract    │  │  (Verification)    │    │
+│  │  Staking    │  │ K8s Gateway  │  │ K8s Nautilus      │    │
+│  │  Contract   │  │   Contract    │  │  Verification     │    │
 │  └──────┬──────┘  └───────┬──────┘  └─────────┬──────────┘    │
 └─────────┼──────────────────┼──────────────────┼────────────────┘
           │                  │                  │
@@ -154,7 +154,11 @@ const (
 
 ### 4. Contracts-Release (Sui 스마트 컨트랙트)
 **경로**: `/contracts-release`  
-**파일 수**: 2개 Move 파일
+**파일 수**: 2개 Move 파일 (배포용)
+
+**참고**: 개발 버전은 `/contracts` 폴더에 4개 파일 존재:
+- `k8s_nautilus_verification.move` - Nautilus TEE 검증
+- `k8s-interface.move` - K8s 인터페이스
 
 #### 스마트 컨트랙트 구성
 

@@ -1,38 +1,36 @@
-// K3s Control Plane Integration for Nautilus TEE
-// This file integrates actual K3s components into Nautilus TEE
+// K3s Control Plane Integration for Nautilus EC2
+// This file manages K3s as external binary process
 
 package main
 
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"time"
+	"path/filepath"
+	"io/ioutil"
+	"strings"
 
 	"github.com/sirupsen/logrus"
-
-	// K3s Control Plane 컴포넌트들 (포크된 버전 사용)
-	"github.com/k3s-io/k3s/pkg/daemons/control"
-	"github.com/k3s-io/k3s/pkg/daemons/config"
-	"github.com/k3s-io/k3s/pkg/daemons/executor"
-	"github.com/k3s-io/k3s/pkg/util"
-
-	// K8s 인증 인터페이스
-	"k8s.io/apiserver/pkg/authentication/authenticator"
-	"k8s.io/apiserver/pkg/authentication/user"
 )
 
-// K3s Control Plane Manager - TEE 내부에서 K3s 마스터 실행
+// K3s Control Plane Manager - 외부 K3s 바이너리 관리
 type K3sControlPlaneManager struct {
 	nautilusMaster   *NautilusMaster
-	controlConfig    *config.Control
+	k3sBinaryPath    string
+	dataDir          string
+	configFile       string
 	logger           *logrus.Logger
 	ctx              context.Context
 	cancel           context.CancelFunc
+	k3sProcess       *exec.Cmd
 }
 
-// K3s Control Plane 초기화 및 시작
+// K3s Control Plane 초기화 및 시작 (외부 바이너리)
 func (n *NautilusMaster) startK3sControlPlane() error {
-	n.logger.Info("TEE: Starting K3s Control Plane integration...")
+	n.logger.Info("EC2: Starting K3s Control Plane as external binary...")
 
 	// Context 생성
 	ctx, cancel := context.WithCancel(context.Background())
@@ -40,318 +38,320 @@ func (n *NautilusMaster) startK3sControlPlane() error {
 	// K3s Control Plane Manager 생성
 	manager := &K3sControlPlaneManager{
 		nautilusMaster: n,
+		k3sBinaryPath:  "/usr/local/bin/k3s",
+		dataDir:        "/var/lib/k3s-daas",
+		configFile:     "/etc/k3s-daas/config.yaml",
 		logger:         n.logger,
 		ctx:            ctx,
 		cancel:         cancel,
 	}
 
-	// 1. K3s 설정 구성
-	if err := manager.setupK3sConfig(); err != nil {
-		friendlyErr := NewConfigValidationError(err)
-		LogUserFriendlyError(n.logger, friendlyErr)
-		return friendlyErr
+	// 1. K3s 바이너리 확인 및 다운로드
+	if err := manager.ensureK3sBinary(); err != nil {
+		return fmt.Errorf("K3s 바이너리 준비 실패: %v", err)
 	}
 
-	// 2. Seal Token 인증 시스템 설정
-	if err := manager.setupSealTokenAuth(); err != nil {
-		friendlyErr := NewSealTokenError(err)
-		LogUserFriendlyError(n.logger, friendlyErr)
-		return friendlyErr
+	// 2. K3s 설정 파일 생성
+	if err := manager.generateK3sConfig(); err != nil {
+		return fmt.Errorf("K3s 설정 생성 실패: %v", err)
 	}
 
-	// 3. K3s Control Plane 시작
-	if err := manager.startControlPlane(); err != nil {
-		friendlyErr := NewK3sStartError(err)
-		LogUserFriendlyError(n.logger, friendlyErr)
-		return friendlyErr
+	// 3. K3s 서버 프로세스 시작
+	if err := manager.startK3sServer(); err != nil {
+		return fmt.Errorf("K3s 서버 시작 실패: %v", err)
 	}
 
-	n.logger.Info("✅ K3s Control Plane이 TEE 내에서 성공적으로 시작됨")
+	n.logger.Info("✅ K3s Control Plane이 외부 프로세스로 성공적으로 시작됨")
 	return nil
 }
 
-// K3s 설정 구성
-func (manager *K3sControlPlaneManager) setupK3sConfig() error {
-	manager.logger.Info("TEE: Configuring K3s Control Plane...")
+// K3s 바이너리 확인 및 다운로드
+func (manager *K3sControlPlaneManager) ensureK3sBinary() error {
+	manager.logger.Info("K3s 바이너리 확인 중...")
 
-	// K3s Control 설정 구성 (GlobalConfig 사용)
-	manager.controlConfig = &config.Control{
-		// 기본 바인딩 설정
-		BindAddress:           GlobalConfig.K3s.BindAddress,
-		HTTPSPort:             GlobalConfig.K3s.HTTPSPort,
-		HTTPSBindAddress:      GlobalConfig.K3s.BindAddress,
-
-		// 데이터 디렉토리
-		DataDir:               GlobalConfig.K3s.DataDir,
-
-		// 네트워킹 설정
-		ClusterIPRange:        util.ParseStringSlice(GlobalConfig.K3s.ClusterCIDR),
-		ServiceIPRange:        util.ParseStringSlice(GlobalConfig.K3s.ServiceCIDR),
-		ClusterDNS:            util.ParseStringSlice(GlobalConfig.K3s.ClusterDNS),
-
-		// 컴포넌트 비활성화 (경량화)
-		DisableAPIServer:      false,
-		DisableScheduler:      false,
-		DisableControllerManager: false,
-		DisableETCD:           true,  // 우리의 TEE etcd 사용
-
-		// 보안 설정
-		EncryptSecrets:        true,
-
-		// 로깅
-		LogFormat:             "json",
-		LogLevel:              GlobalConfig.Logging.Level,
-
-		// TEE 특화 설정
-		Token:                 GlobalConfig.K3s.BootstrapToken,
-
-		// Runtime 설정
-		Runtime:               "containerd",
-
-		// 인증서 설정
-		TLSMinVersion:         GlobalConfig.K3s.TLSMinVersion,
-		CipherSuites:          []string{"TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"},
+	// K3s 바이너리 존재 확인
+	if _, err := os.Stat(manager.k3sBinaryPath); os.IsNotExist(err) {
+		manager.logger.Info("K3s 바이너리가 없습니다. 다운로드 중...")
+		if err := manager.downloadK3sBinary(); err != nil {
+			return fmt.Errorf("K3s 바이너리 다운로드 실패: %v", err)
+		}
 	}
 
-	manager.logger.WithFields(logrus.Fields{
-		"data_dir":    GlobalConfig.K3s.DataDir,
-		"https_port":  GlobalConfig.K3s.HTTPSPort,
-		"bind_addr":   GlobalConfig.K3s.BindAddress,
-	}).Info("K3s Control 설정 완료")
+	// 실행 권한 확인
+	if err := os.Chmod(manager.k3sBinaryPath, 0755); err != nil {
+		return fmt.Errorf("K3s 바이너리 권한 설정 실패: %v", err)
+	}
 
+	manager.logger.Info("✅ K3s 바이너리 준비 완료")
 	return nil
 }
 
-// Seal Token 기반 인증 시스템 설정
-func (manager *K3sControlPlaneManager) setupSealTokenAuth() error {
-	manager.logger.Info("TEE: Setting up Seal Token authentication...")
-
-	// Seal Token Authenticator 생성
-	sealAuth := &SealTokenAuthenticator{
-		validator: manager.nautilusMaster.sealTokenValidator,
-		logger:    manager.logger,
+// K3s 바이너리 다운로드
+func (manager *K3sControlPlaneManager) downloadK3sBinary() error {
+	// 디렉토리 생성
+	dir := filepath.Dir(manager.k3sBinaryPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("디렉토리 생성 실패: %v", err)
 	}
 
-	// K3s 인증 시스템에 Seal Token Authenticator 등록
-	manager.controlConfig.Authenticator = sealAuth
-
-	manager.logger.Info("✅ Seal Token 인증 시스템 설정 완료")
-	return nil
-}
-
-// K3s Control Plane 시작
-func (manager *K3sControlPlaneManager) startControlPlane() error {
-	manager.logger.Info("TEE: Starting K3s Control Plane components...")
-
-	// 1. K3s Control Plane 준비
-	manager.logger.Info("TEE: Preparing K3s Control Plane...")
-	if err := control.Prepare(manager.ctx, manager.controlConfig); err != nil {
-		friendlyErr := NewK3sStartError(err)
-		LogUserFriendlyError(manager.logger, friendlyErr)
-		return friendlyErr
-	}
-
-	// 2. K3s Executor (API Server, Scheduler, Controller Manager) 시작
-	manager.logger.Info("TEE: Starting K3s Executor components...")
-	go func() {
-		exec, err := executor.Embedded(manager.ctx)
-		if err != nil {
-			manager.logger.Errorf("K3s Executor 생성 실패: %v", err)
-			return
-		}
-
-		// API Server 시작
-		if err := exec.APIServer(manager.ctx, manager.controlConfig); err != nil {
-			manager.logger.Errorf("API Server 시작 실패: %v", err)
-		}
-
-		// Scheduler 시작
-		if err := exec.Scheduler(manager.ctx, manager.controlConfig); err != nil {
-			manager.logger.Errorf("Scheduler 시작 실패: %v", err)
-		}
-
-		// Controller Manager 시작
-		if err := exec.ControllerManager(manager.ctx, manager.controlConfig); err != nil {
-			manager.logger.Errorf("Controller Manager 시작 실패: %v", err)
-		}
-	}()
-
-	// 3. 컴포넌트 시작 대기
-	manager.logger.Info("TEE: Waiting for K3s components to be ready...")
-	if err := manager.waitForComponents(); err != nil {
-		friendlyErr := NewHealthCheckError("K3s 컴포넌트", err)
-		LogUserFriendlyError(manager.logger, friendlyErr)
-		return friendlyErr
-	}
-
-	manager.logger.Info("✅ K3s Control Plane 시작 완료")
-	return nil
-}
-
-
-// K3s 컴포넌트들이 준비될 때까지 대기
-func (manager *K3sControlPlaneManager) waitForComponents() error {
-	manager.logger.Info("TEE: Checking K3s component readiness...")
-
-	timeout := time.After(120 * time.Second)
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-timeout:
-			return fmt.Errorf("K3s 컴포넌트 시작 타임아웃 (120초)")
-		case <-ticker.C:
-			if manager.areComponentsReady() {
-				manager.logger.Info("✅ 모든 K3s 컴포넌트가 준비됨")
-				return nil
-			}
-			manager.logger.Debug("K3s 컴포넌트들이 아직 준비되지 않음, 대기 중...")
-		}
-	}
-}
-
-// K3s 컴포넌트 준비 상태 확인
-func (manager *K3sControlPlaneManager) areComponentsReady() bool {
-	// API Server 헬스체크
-	if !manager.isAPIServerReady() {
-		return false
-	}
-
-	// Scheduler 확인
-	if !manager.isSchedulerReady() {
-		return false
-	}
-
-	// Controller Manager 확인
-	if !manager.isControllerManagerReady() {
-		return false
-	}
-
-	return true
-}
-
-// API Server 준비 상태 확인
-func (manager *K3sControlPlaneManager) isAPIServerReady() bool {
-	// K3s API 서버 헬스체크 (설정에서 가져온 주소 사용)
-	healthURL := fmt.Sprintf("https://%s:%d/healthz",
-		GlobalConfig.K3s.BindAddress, GlobalConfig.K3s.HTTPSPort)
-	resp, err := manager.nautilusMaster.makeHealthCheck(healthURL)
+	// K3s 바이너리 다운로드 명령
+	cmd := exec.Command("curl", "-L", "-o", manager.k3sBinaryPath, 
+		"https://github.com/k3s-io/k3s/releases/latest/download/k3s")
+	
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		manager.logger.Debugf("API Server 헬스체크 실패: %v", err)
-		return false
+		return fmt.Errorf("다운로드 실패: %v, output: %s", err, output)
 	}
-	return resp == "ok"
+
+	manager.logger.Info("K3s 바이너리 다운로드 완료")
+	return nil
 }
 
-// Scheduler 준비 상태 확인
-func (manager *K3sControlPlaneManager) isSchedulerReady() bool {
-	// Scheduler 리더 선출 확인
-	healthURL := fmt.Sprintf("https://%s:%d/healthz/poststarthook/start-kube-scheduler-informers",
-		GlobalConfig.K3s.BindAddress, GlobalConfig.K3s.HTTPSPort)
-	resp, err := manager.nautilusMaster.makeHealthCheck(healthURL)
+// K3s 설정 파일 생성
+func (manager *K3sControlPlaneManager) generateK3sConfig() error {
+	manager.logger.Info("K3s 설정 파일 생성 중...")
+
+	// 설정 디렉토리 생성
+	configDir := filepath.Dir(manager.configFile)
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return fmt.Errorf("설정 디렉토리 생성 실패: %v", err)
+	}
+
+	// 데이터 디렉토리 생성
+	if err := os.MkdirAll(manager.dataDir, 0755); err != nil {
+		return fmt.Errorf("데이터 디렉토리 생성 실패: %v", err)
+	}
+
+	// K3s 설정 내용
+	configContent := `# K3s-DaaS Configuration
+# Generated automatically
+
+cluster-cidr: "10.42.0.0/16"
+service-cidr: "10.43.0.0/16"
+cluster-dns: "10.43.0.10"
+data-dir: "` + manager.dataDir + `"
+bind-address: "0.0.0.0"
+https-listen-port: 6443
+write-kubeconfig-mode: "0644"
+tls-san:
+  - "localhost"
+  - "127.0.0.1"
+  - "0.0.0.0"
+disable:
+  - "traefik"  # 나중에 istio 사용 예정
+kube-apiserver-arg:
+  - "enable-admission-plugins=NodeRestriction,ResourceQuota"
+  - "audit-log-maxage=30"
+  - "audit-log-maxbackup=3"
+  - "audit-log-maxsize=100"
+`
+
+	// 설정 파일 쓰기
+	if err := ioutil.WriteFile(manager.configFile, []byte(configContent), 0644); err != nil {
+		return fmt.Errorf("설정 파일 쓰기 실패: %v", err)
+	}
+
+	manager.logger.WithField("config_file", manager.configFile).Info("✅ K3s 설정 파일 생성 완료")
+	return nil
+}
+
+// K3s 서버 시작 (외부 프로세스)
+func (manager *K3sControlPlaneManager) startK3sServer() error {
+	manager.logger.Info("K3s 서버 프로세스 시작 중...")
+
+	// K3s 서버 명령 준비
+	cmd := exec.CommandContext(manager.ctx, manager.k3sBinaryPath, "server",
+		"--config", manager.configFile,
+		"--token", "k3s-daas-bootstrap-token",
+		"--disable", "traefik", // 나중에 istio 사용
+		"--write-kubeconfig-mode", "0644",
+		"--kube-apiserver-arg", "enable-admission-plugins=NodeRestriction,ResourceQuota",
+	)
+
+	// 환경 변수 설정
+	cmd.Env = append(os.Environ(),
+		"K3S_TOKEN=k3s-daas-bootstrap-token",
+		"K3S_DATA_DIR="+manager.dataDir,
+	)
+
+	// 로그 출력 설정
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	// 프로세스 시작
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("K3s 서버 시작 실패: %v", err)
+	}
+
+	// 프로세스 참조 저장
+	manager.k3sProcess = cmd
+
+	// 프로세스 상태 모니터링
+	go manager.monitorK3sProcess()
+
+	// K3s API 서버 준비 대기
+	if err := manager.waitForK3sReady(); err != nil {
+		return fmt.Errorf("K3s API 서버 준비 대기 실패: %v", err)
+	}
+
+	manager.logger.WithField("pid", cmd.Process.Pid).Info("✅ K3s 서버 성공적으로 시작")
+	return nil
+}
+
+// K3s 프로세스 모니터링
+func (manager *K3sControlPlaneManager) monitorK3sProcess() {
+	if manager.k3sProcess == nil {
+		return
+	}
+
+	// 프로세스 종료 대기
+	err := manager.k3sProcess.Wait()
 	if err != nil {
-		manager.logger.Debugf("Scheduler 헬스체크 실패: %v", err)
-		return false
+		manager.logger.WithError(err).Error("⚠️ K3s 프로세스가 비정상 종료")
+	} else {
+		manager.logger.Info("K3s 프로세스가 정상 종료")
 	}
-	return resp == "ok"
-}
 
-// Controller Manager 준비 상태 확인
-func (manager *K3sControlPlaneManager) isControllerManagerReady() bool {
-	// Controller Manager 헬스체크
-	healthURL := fmt.Sprintf("https://%s:%d/healthz/poststarthook/start-kube-controller-manager",
-		GlobalConfig.K3s.BindAddress, GlobalConfig.K3s.HTTPSPort)
-	resp, err := manager.nautilusMaster.makeHealthCheck(healthURL)
-	if err != nil {
-		manager.logger.Debugf("Controller Manager 헬스체크 실패: %v", err)
-		return false
+	// 종료 이벤트 처리
+	select {
+	case <-manager.ctx.Done():
+		// 정상 종료
+	default:
+		// 비정상 종료 - 재시작 시도
+		manager.logger.Warn("K3s 서버 재시작 시도...")
+		time.Sleep(5 * time.Second)
+		if err := manager.startK3sServer(); err != nil {
+			manager.logger.WithError(err).Error("K3s 서버 재시작 실패")
+		}
 	}
-	return resp == "ok"
 }
 
-// 헬스체크 요청 수행
-func (n *NautilusMaster) makeHealthCheck(url string) (string, error) {
-	// 실제 구현에서는 TLS 인증서와 함께 요청
-	// 지금은 단순화
-	return "ok", nil
+// K3s API 서버 준비 대기
+func (manager *K3sControlPlaneManager) waitForK3sReady() error {
+	manager.logger.Info("K3s API 서버 준비 대기 중...")
+
+	maxRetries := 30
+	for i := 0; i < maxRetries; i++ {
+		// kubectl 을 사용하여 API 서버 상태 확인
+		cmd := exec.Command("curl", "-k", "-s", "https://localhost:6443/healthz")
+		output, err := cmd.Output()
+		if err == nil && strings.Contains(string(output), "ok") {
+			manager.logger.Info("✅ K3s API 서버 준비 완료")
+			return nil
+		}
+
+		manager.logger.WithField("attempt", i+1).Debug("K3s API 서버 준비 대기...")
+		time.Sleep(2 * time.Second)
+	}
+
+	return fmt.Errorf("K3s API 서버 준비 시간 초과 (%d초)", maxRetries*2)
 }
 
-// Seal Token Authenticator 구현
+// K3s 서버 중지
+func (manager *K3sControlPlaneManager) stopK3sServer() error {
+	manager.logger.Info("K3s 서버 중지 중...")
+
+	if manager.k3sProcess != nil {
+		// 정상 종료 시그널 전송
+		if err := manager.k3sProcess.Process.Signal(os.Interrupt); err != nil {
+			manager.logger.WithError(err).Warn("정상 종료 시그널 전송 실패, 강제 종료")
+			manager.k3sProcess.Process.Kill()
+		}
+
+		// 프로세스 종료 대기
+		manager.k3sProcess.Wait()
+		manager.k3sProcess = nil
+	}
+
+	manager.logger.Info("✅ K3s 서버 중지 완료")
+	return nil
+}
+
+// K3s kubeconfig 파일 경로 반환
+func (manager *K3sControlPlaneManager) getKubeconfigPath() string {
+	return filepath.Join(manager.dataDir, "server", "cred", "admin.kubeconfig")
+}
+
+// SealTokenAuthenticator - K3s 인증을 위한 Seal Token 검증기
 type SealTokenAuthenticator struct {
 	validator *SealTokenValidator
 	logger    *logrus.Logger
 }
 
-// Token 인증 구현 (K3s authenticator.TokenAuthenticator 인터페이스)
+// AuthenticateToken K3s 인증 인터페이스 구현
 func (auth *SealTokenAuthenticator) AuthenticateToken(ctx context.Context, token string) (*authenticator.Response, bool, error) {
-	auth.logger.WithField("token", token[:10]+"...").Debug("Authenticating Seal token")
+	auth.logger.WithField("token_prefix", token[:min(len(token), 10)]).Debug("Authenticating Seal token")
 
-	// 1. Seal 토큰 검증
-	if !auth.validator.ValidateSealToken(token) {
-		auth.logger.Warn("Invalid Seal token authentication attempt")
-		return nil, false, fmt.Errorf("invalid seal token")
+	// 1. 토큰 포맷 검증
+	if !auth.isValidTokenFormat(token) {
+		auth.logger.Debug("Invalid token format")
+		return nil, false, nil
 	}
 
-	// 2. Sui 블록체인에서 스테이킹 정보 조회
-	stakeInfo, err := auth.getStakeInfoFromToken(token)
+	// 2. 블록체인 기반 토큰 검증 (실제 Sui RPC 호출)
+	tokenInfo, err := auth.validateTokenWithBlockchain(token)
 	if err != nil {
-		auth.logger.Errorf("Failed to get stake info: %v", err)
-		return nil, false, fmt.Errorf("failed to get stake info: %v", err)
+		auth.logger.WithError(err).Warn("Blockchain token validation failed")
+		return nil, false, nil
 	}
 
-	// 3. 스테이킹 양에 따른 권한 부여
-	groups := []string{"system:nodes", "system:node-proxier"}
-
-	if stakeInfo.Amount >= 10000 {
-		// 관리자 권한 (10000 MIST 이상)
-		groups = append(groups, "system:masters")
-		auth.logger.Info("Admin level access granted")
-	} else if stakeInfo.Amount >= 1000 {
-		// 워커 노드 권한 (1000 MIST 이상)
-		groups = append(groups, "system:nodes")
-		auth.logger.Info("Worker node access granted")
-	} else {
-		// 읽기 전용 권한 (100 MIST 이상)
-		groups = append(groups, "system:node-reader")
-		auth.logger.Info("Read-only access granted")
+	if tokenInfo == nil {
+		auth.logger.Debug("Token not found or invalid")
+		return nil, false, nil
 	}
 
-	userInfo := &user.DefaultInfo{
-		Name:   stakeInfo.NodeID,
-		UID:    stakeInfo.Address,
-		Groups: groups,
-	}
-
-	response := &authenticator.Response{
-		User: userInfo,
-	}
-
-	auth.logger.WithFields(logrus.Fields{
-		"username": userInfo.Name,
-		"groups":   userInfo.Groups,
-		"stake":    stakeInfo.Amount,
-	}).Info("Seal token authentication successful")
-
-	return response, true, nil
+	// 3. K3s 인증 응답 생성
+	return auth.createAuthResponse(tokenInfo), true, nil
 }
 
-// Seal 토큰에서 스테이킹 정보 조회
-func (auth *SealTokenAuthenticator) getStakeInfoFromToken(token string) (*StakeInfo, error) {
-	// 실제 구현에서는 Sui 블록체인 조회
-	// 지금은 시뮬레이션
-	return &StakeInfo{
-		NodeID:  "worker-node-001",
-		Address: "0x1234567890abcdef",
-		Amount:  1000000000, // 1000 MIST
-		Status:  "active",
-	}, nil
+// 최소값 함수
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
-// Stake 정보 구조체 (Sui 블록체인 조회용)
-type StakeInfo struct {
-	NodeID  string
-	Address string
-	Amount  uint64
-	Status  string
+// 토큰 포맷 검증
+func (auth *SealTokenAuthenticator) isValidTokenFormat(token string) bool {
+	// Seal 토큰은 64자 hex 문자열
+	if len(token) != 64 {
+		return false
+	}
+
+	for _, c := range token {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// 블록체인 기반 토큰 검증
+func (auth *SealTokenAuthenticator) validateTokenWithBlockchain(token string) (*SealTokenInfo, error) {
+	// 실제 Sui RPC 호출로 토큰 검증
+	return auth.validator.ValidateToken(token)
+}
+
+// K3s 인증 응답 생성
+func (auth *SealTokenAuthenticator) createAuthResponse(tokenInfo *SealTokenInfo) *authenticator.Response {
+	return &authenticator.Response{
+		User: &user.DefaultInfo{
+			Name: tokenInfo.UserID,
+			Groups: []string{
+				"system:authenticated",
+				"system:seal-authenticated",
+			},
+		},
+	}
+}
+
+// SealTokenInfo Seal 토큰 정보
+type SealTokenInfo struct {
+	Token       string
+	UserID      string
+	StakeAmount uint64
+	NodeID      string
+	Permissions []string
 }
