@@ -1,0 +1,11 @@
+[package]
+name = "k3s_daas_contracts"
+version = "1.0.0"
+edition = "2024.beta"
+
+[dependencies]
+Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/testnet" }
+
+[addresses]
+k3s_daas = "0x0"
+k8s_interface = "0x66dd12aeb5b7c35ec6c5a68c60e0b3f21a4252d1ee80a43da8f6225b074adb0b"

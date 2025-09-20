@@ -1,0 +1,49 @@
+{
+    "deployment_status": "SUCCESS",
+    "network": "Sui Testnet",
+    "deployed_at": "2025-09-20T11:06:47Z",
+    "deployer": "0x2bed163bdbfd3b75ae75b5d9e55f65c24b1ae77d1d68e4bf66632357aa1e81a3",
+    "contracts": {
+        "staking": {
+            "package_id": "0x66dd12aeb5b7c35ec6c5a68c60e0b3f21a4252d1ee80a43da8f6225b074adb0b",
+            "staking_pool_id": "0xbe5f2b4b92b111ef2840931c6c4fe2ae6552e7b2e35b4050a9fa16ef5f31d728",
+            "module": "staking",
+            "functions": [
+                "stake_for_node",
+                "stake_for_user",
+                "unstake",
+                "get_min_node_stake",
+                "get_min_user_stake"
+            ]
+        },
+        "gateway": {
+            "package_id": "0x787b85fdee16ebd4642d8c73cc7cbbec837363d8ccc2b1cd724e6b33c1796610",
+            "module": "gateway",
+            "functions": [
+                "create_seal_token",
+                "emit_k8s_event"
+            ],
+            "test_object_created": "0xb11e7c0fec7f7d6c520d18ca32915ee14aa96d7339bd1515c5dcac1447e53af3"
+        }
+    },
+    "endpoints": {
+        "sui_rpc": "https://fullnode.testnet.sui.io:443",
+        "sui_faucet": "https://discord.com/channels/916379725201563759/1037811694564360966"
+    },
+    "testing": {
+        "staking_min_amounts": {
+            "node": "1000000000 MIST (1 SUI)",
+            "user": "500000000 MIST (0.5 SUI)",
+            "admin": "10000000000 MIST (10 SUI)"
+        },
+        "gateway_test_completed": true,
+        "seal_token_created": true
+    },
+    "next_steps": [
+        "Update staker-config.json with the staking package ID",
+        "Update K3s-DaaS worker configuration with gateway package ID",
+        "Test staking functions with actual SUI amounts",
+        "Integrate with Nautilus TEE endpoints",
+        "Deploy to production environment"
+    ]
+}

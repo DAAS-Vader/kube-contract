@@ -661,22 +661,6 @@ make build-all
 
 ## 라이선스 및 저작권
 
-```
-Copyright (c) 2024 K3s-DaaS Team
-Licensed under Apache License 2.0
-
-본 프로젝트는 오픈소스이며, 상업적 사용 가능합니다.
-단, TEE 관련 일부 코드는 벤더별 라이선스를 따릅니다.
-```
-
-## 연락처 및 지원
-
-- 📧 이메일: support@k3s-daas.io
-- 💬 Discord: discord.gg/k3s-daas
-- 📚 문서: docs.k3s-daas.io
-- 🐛 이슈: github.com/k3s-daas/issues
-
----
 
 *Last Updated: 2024-12-20*  
 *Version: 1.0.0*  
