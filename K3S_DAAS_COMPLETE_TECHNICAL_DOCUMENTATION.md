@@ -174,8 +174,8 @@ sequenceDiagram
     U->>B: 1. sui client call stake_and_register_worker
     B->>B: 2. Emit WorkerRegisteredEvent
     B->>B: 3. Emit StakeDepositedEvent
-    N->>B: 4. Listen for events (📡)
-    N->>N: 5. Process registration (🎉)
+    N->>B: 4. Listen for events 
+    N->>N: 5. Process registration 
     U->>B: 6. sui client call activate_worker
     B->>B: 7. Emit WorkerStatusChangedEvent
     N->>N: 8. Set join token in contract
